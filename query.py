@@ -26,6 +26,9 @@ def get_api_key(provider):
     
     return api_key
 
+def format_prompt(template, **kwargs):
+    return template.format(**kwargs)
+
 def model_query_local(query):
     # 这里实现本地模型的查询逻辑
     pass
@@ -73,13 +76,9 @@ def model_query_infinigence(query):
         "model": model,
         "messages": [
             {
-                "role": "system",
-                "content": "第一个问题：你是谁？"
+                "role": "user",
+                "content": query['formatted_prompt']
             },
-            {
-                "role": "system",
-                "content": "第二个问题：我是谁？"
-            }
         ]
     }
     headers = {
@@ -91,9 +90,25 @@ def model_query_infinigence(query):
 
     print(response.json())
 
-def read_config(query_file):
-    with open(query_file, 'r') as file:
+def read_yaml(file_path):
+    with open(file_path, 'r') as file:
         return yaml.safe_load(file)
+
+def format_prompt(template, **kwargs):
+    return template.format(**kwargs)
+
+def process_query(query, prompt_templates):
+    prompt_type = query.get('prompt_type', 'default')
+    template = prompt_templates.get(prompt_type, prompt_templates['default'])
+    
+    # 准备格式化参数
+    format_args = {k: v for k, v in query.items() if k != 'prompt_type'}
+    
+    # 格式化prompt
+    formatted_prompt = format_prompt(template['template'], **format_args)
+    
+    # 更新query字典
+    query['formatted_prompt'] = formatted_prompt
 
 def dispatch_query(query):
     if query["type"] == "openai":
@@ -111,7 +126,11 @@ def dispatch_query(query):
 def main():
     load_dotenv()
     args = parse_arguments()
-    query = read_config(args.query_file)
+    query = read_yaml(args.query_file)
+    prompt_templates = read_yaml(args.prompt_file)
+
+    # 处理query，应用prompt模板
+    process_query(query, prompt_templates)
     
     if args.interactive:
         print("Running in interactive mode.")
