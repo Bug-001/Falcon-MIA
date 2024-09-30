@@ -1,0 +1,44 @@
+default:
+  template: "{instruction}"
+
+general_qa:
+  template: "请回答以下问题：{instruction}"
+
+code_generation:
+  template: "请生成以下代码：{instruction}"
+
+code_explanation:
+  template: "请解释以下代码：\n\n{instruction}\n\n解释："
+
+summarization:
+  template: "请总结以下内容：\n\n{instruction}\n\n总结："
+
+translation:
+  template: "请将以下文本翻译成{target_language}：\n\n{instruction}\n\n翻译："
+
+sentiment_analysis:
+  template: "请分析以下文本的情感倾向：\n\n{instruction}\n\n情感分析："
+
+creative_writing:
+  template: "请根据以下提示创作一个短篇故事：\n\n{instruction}\n\n故事："
+
+problem_solving:
+  template: "请解决以下问题，并给出详细的步骤：\n\n{instruction}\n\n解决方案："
+
+expert_role:
+  template: "作为{expert_type}专家，请回答以下问题：\n\n{instruction}\n\n专家回答："
+
+comparison:
+  template: "请比较以下两个概念，并指出它们的异同点：\n\n{concept1}\n{concept2}\n\n比较结果："
+
+pros_cons:
+  template: "请列出以下事物的优点和缺点：\n\n{instruction}\n\n优点：\n缺点："
+
+step_by_step_guide:
+  template: "请提供一个关于如何{instruction}的详细步骤指南。"
+
+brainstorming:
+  template: "请为以下主题提供{number}个创意想法：\n\n{instruction}\n\n创意列表："
+
+definition_explanation:
+  template: "请解释以下术语或概念：\n\n{instruction}\n\n解释："
