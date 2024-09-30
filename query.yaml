@@ -1,4 +1,4 @@
 type: infinigence
-model: llama
+model: qwen2.5-72b-instruct
 prompt_type: code_explanation
 instruction: "def fibonacci(n):\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)"

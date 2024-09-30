@@ -1,6 +1,8 @@
 import argparse
 import yaml
 import requests
+import os
+from dotenv import load_dotenv
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Large Language Model Query Tool")
@@ -11,6 +13,18 @@ def parse_arguments():
     parser.add_argument("-p", "--prompt_file", default="prompt_templates.yaml",
                         help="Path to the prompt templates file (default: prompt_templates.yaml)")
     return parser.parse_args()
+
+def get_api_key(provider):
+    """
+    根据提供商名称获取API密钥
+    """
+    key_name = f"{provider.upper()}_API_KEY"
+    api_key = os.getenv(key_name)
+    
+    if not api_key:
+        raise ValueError(f"API key for {provider} not found. Please set the {key_name} environment variable in .env.")
+    
+    return api_key
 
 def model_query_local(query):
     # 这里实现本地模型的查询逻辑
@@ -26,7 +40,7 @@ def model_query_openai(query):
     }
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer $API_KEY"
+        "Authorization": "Bearer %s" % get_api_key("openai")
     }
 
     response = requests.post(url, json=payload, headers=headers)
@@ -43,7 +57,7 @@ def model_query_anthropic(query):
     }
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer $API_KEY"
+        "Authorization": "Bearer %s" % get_api_key("anthropic")
     }
 
     response = requests.post(url, json=payload, headers=headers)
@@ -51,20 +65,26 @@ def model_query_anthropic(query):
     print(response.json())
 
 def model_query_infinigence(query):
-    url = "https://cloud.infini-ai.com/maas/qwen2.5-72b-instruct/nvidia/chat/completions"
+    model = query["model"]
+
+    url = f"https://cloud.infini-ai.com/maas/{model}/nvidia/chat/completions"
 
     payload = {
-        "model": "qwen2.5-72b-instruct",
+        "model": model,
         "messages": [
             {
-                "role": "user",
-                "content": "你是谁"
+                "role": "system",
+                "content": "第一个问题：你是谁？"
+            },
+            {
+                "role": "system",
+                "content": "第二个问题：我是谁？"
             }
         ]
     }
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer $API_KEY"
+        "Authorization": "Bearer %s" % get_api_key("infinigence")
     }
 
     response = requests.post(url, json=payload, headers=headers)
@@ -84,11 +104,12 @@ def dispatch_query(query):
         pass
     elif query["type"] == "infinigence":
         # 这里实现 Infinigence 模型的查询逻辑
-        pass
+        model_query_infinigence(query)
     else:
         raise ValueError(f"Unknown type: {query['type']}")
 
 def main():
+    load_dotenv()
     args = parse_arguments()
     query = read_config(args.query_file)
     
