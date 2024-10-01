@@ -1,0 +1,78 @@
+id: "experiment_001"
+
+model:
+  type: "transformers"  # 可以是 "transformers" 或 "remote"
+  name: "meta-llama/Llama-2-7b-hf"
+  trust_remote_code: false
+  use_flash_attention: true
+  quantization:
+    use_int4: false
+    use_int8: false
+  tokenizer:
+    add_eos_token: false
+    add_bos_token: false
+    pad_token_id: null
+  hf_cache_dir: null  # 新增，用于存储从HuggingFace下载的模型缓存
+
+data:
+  dataset_name: "ag_news"
+  prompt_template: "default"
+  dataset_config_name: null
+  hf_cache_dir: null  # 新增，用于存储从HuggingFace下载的数据集缓存
+  # preprocessed_cache_dir: "./input_cache"  # 新增，用于存储预处理后的数据缓存，TODO
+  packing: false
+  block_size: 1024
+  preprocessing_num_workers: 1
+  validation_split_percentage: 0.1
+  train:
+    start_index: 0
+    end_index: 6000
+  eval:
+    start_index: 0
+    end_index: 600
+
+training:
+  output_dir: "./ckpt_cache"
+  resume_from_checkpoint: true
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1e-4
+  lr_scheduler_type: "linear"
+  warmup_steps: 0
+  weight_decay: 0
+  logging_steps: 100
+  evaluation_strategy: "steps"
+  eval_steps: 300
+  save_strategy: "steps"
+  save_steps: 300
+  save_total_limit: 5
+  gradient_checkpointing: false
+
+peft:
+  disable_peft: false
+  method: "lora"
+  lora:
+    rank: 64
+    alpha: 16
+    dropout: 0.1
+  prefix_tuning:
+    num_virtual_tokens: 20
+    encoder_hidden_size: 128
+  p_tuning:
+    num_virtual_tokens: 20
+    encoder_hidden_size: 128
+  ia3:
+    target_modules: ["k_proj", "v_proj", "down_proj"]
+    feedforward_modules: ["down_proj"]
+
+hardware:
+  split_model: false
+
+remote_model:
+  api_base: "https://api.openai.com/v1"
+  model: "gpt-3.5-turbo"
+  api_version: null
+
+miscellaneous:
+  token: null

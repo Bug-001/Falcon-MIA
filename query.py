@@ -8,9 +8,9 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Large Language Model Query Tool")
     parser.add_argument("-i", "--interactive", action="store_true", 
                         help="Run in interactive mode")
-    parser.add_argument("-q", "--query_file", default="query.yaml", 
+    parser.add_argument("-q", "--query_file", default="examples/query.yaml", 
                         help="Path to the YAML query file (default: query.yaml)")
-    parser.add_argument("-p", "--prompt_file", default="prompt_templates.yaml",
+    parser.add_argument("-p", "--prompt_file", default="examples/prompt-templates.yaml",
                         help="Path to the prompt templates file (default: prompt_templates.yaml)")
     return parser.parse_args()
 
