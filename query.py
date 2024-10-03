@@ -34,21 +34,25 @@ def model_query_local(query):
     pass
 
 def model_query_openai(query):
-    url = "https://api.openai.com/v1/engines/davinci/completions"
+    from openai import OpenAI
+    client = OpenAI()
 
-    payload = {
-        "model": "davinci",
-        "prompt": query,
-        "max_tokens": 150
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer %s" % get_api_key("openai")
-    }
+    completion = client.chat.completions.create(
+        model=query.get('model', 'gpt-3.5-turbo'),
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {
+                "role": "user",
+                "content": query['formatted_prompt']
+            }
+        ]
+    )
 
-    response = requests.post(url, json=payload, headers=headers)
-
-    print(response.json())
+    try:
+        print(completion.choices[0].message)
+        return completion.choices[0].message
+    except Exception as e:
+        print(e)
 
 def model_query_anthropic(query):
     url = "https://api.anthropic.com/maas/v1/engines/davinci/completions"
@@ -113,7 +117,7 @@ def process_query(query, prompt_templates):
 def dispatch_query(query):
     if query["type"] == "openai":
         # 这里实现 OpenAI 模型的查询逻辑
-        pass
+        model_query_openai(query)
     elif query["type"] == "anthropic":
         # 这里实现 Anthropic 模型的查询逻辑
         pass
