@@ -1,0 +1,8 @@
+model-tag: "meta-llama/Meta-Llama-3-8B"
+host: "127.0.0.1"
+port: 8090
+trust-remote-code: false
+dtype: "auto"
+gpu-memory-utilization: 0.8
+max-num-seqs: 256
+quantization: null

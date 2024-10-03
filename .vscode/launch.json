@@ -11,6 +11,22 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
+        },
+        {
+            "name": "Python: VLLM Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "server.py",
+            "args": [
+                "meta-llama/Meta-Llama-3-8B",
+                "--config", "server.yaml",
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "cwd": "${workspaceFolder}",
         }
     ]
 }

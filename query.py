@@ -3,6 +3,7 @@ import yaml
 import requests
 import os
 from dotenv import load_dotenv
+from openai import OpenAI
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Large Language Model Query Tool")
@@ -29,30 +30,53 @@ def get_api_key(provider):
 def format_prompt(template, **kwargs):
     return template.format(**kwargs)
 
-def model_query_local(query):
-    # 这里实现本地模型的查询逻辑
-    pass
-
-def model_query_openai(query):
-    from openai import OpenAI
-    client = OpenAI()
-
-    completion = client.chat.completions.create(
-        model=query.get('model', 'gpt-3.5-turbo'),
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {
-                "role": "user",
-                "content": query['formatted_prompt']
-            }
-        ]
-    )
-
+def openai_api_request(client, query):
     try:
+        messages = [
+            {"role": "system", "content": query.get('system_message', "You are a helpful assistant.")},
+            {"role": "user", "content": query['instruction']}
+        ]
+
+        # Prepare the completion parameters
+        completion_params = {
+            'model': query.get('model', 'gpt-3.5-turbo'),
+            'messages': messages,
+            'temperature': query.get('temperature', 0.7),
+            'max_tokens': query.get('max_tokens', 150),
+            'top_p': query.get('top_p', 1.0),
+            'frequency_penalty': query.get('frequency_penalty', 0.0),
+            'presence_penalty': query.get('presence_penalty', 0.0),
+            'n': query.get('n', 1)
+        }
+
+        # Add optional parameters only if they are present in the query
+        if 'stop' in query:
+            completion_params['stop'] = query['stop']
+
+        completion = client.chat.completions.create(**completion_params)
         print(completion.choices[0].message)
         return completion.choices[0].message
     except Exception as e:
-        print(e)
+        print(f"Error during API request: {e}")
+        return None
+
+def model_query_local(query):
+    server = read_yaml(query['model'])
+    server_host = server.get('host', '127.0.0.1')
+    server_port = server.get('port', 8000)
+    client = OpenAI(
+        base_url=f"http://{server_host}:{server_port}/v1",
+    )
+    if server_host == 'localhost' or server_host.startswith('127.'):
+        os.environ.pop('HTTP_PROXY', None)
+        os.environ.pop('HTTPS_PROXY', None)
+
+    query['model'] = server['model-tag']
+    openai_api_request(client, query)
+
+def model_query_openai(query):
+    client = OpenAI()
+    openai_api_request(client, query)
 
 def model_query_anthropic(query):
     url = "https://api.anthropic.com/maas/v1/engines/davinci/completions"
@@ -118,6 +142,9 @@ def dispatch_query(query):
     if query["type"] == "openai":
         # 这里实现 OpenAI 模型的查询逻辑
         model_query_openai(query)
+    elif query["type"] == "local":
+        # 这里实现本地模型的查询逻辑
+        model_query_local(query)
     elif query["type"] == "anthropic":
         # 这里实现 Anthropic 模型的查询逻辑
         pass
