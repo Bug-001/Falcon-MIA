@@ -24,6 +24,7 @@ This repository contains a versatile and comprehensive tool for working with Lar
    - Enables chat-based interactions with predefined and dynamic responses.
    - Allows for custom instructions and fine-grained control over generation parameters.
    - Offers both interactive and non-interactive querying modes.
+   - Supports full and partial output mode.
 
 3. **Serving**: Deploy fine-tuned or pre-trained models for efficient inference.
    - Utilizes VLLM for high-performance model serving.
@@ -75,7 +76,7 @@ The `fine-tune.yaml` file contains all the necessary configurations for fine-tun
 To query a model, use the `query.py` script with a configuration file:
 
 ```
-python query.py --query_file path/to/your/query.yaml --prompt_file path/to/your/prompt-templates.yaml
+python query.py --query_file path/to/your/query.yaml --prompt_file path/to/your/prompt-templates.yaml [--full]
 ```
 
 The `query.yaml` file contains all the necessary configurations for querying:
