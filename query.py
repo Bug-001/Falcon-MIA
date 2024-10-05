@@ -4,6 +4,152 @@ import requests
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
+from utils import get_logger
+from colorama import Fore, init
+from abc import ABC, abstractmethod
+
+logger = get_logger("query", "info")
+init()
+
+class ModelClient(ABC):
+    @abstractmethod
+    def chat_completion(self, messages, **kwargs):
+        pass
+
+class OpenAIClient(ModelClient):
+    def __init__(self, api_key=None):
+        self.client = OpenAI(api_key=api_key)
+
+    def chat_completion(self, messages, **kwargs):
+        try:
+            completion = self.client.chat.completions.create(
+                messages=messages,
+                **kwargs
+            )
+            return completion.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"Error during OpenAI API request: {e}")
+            return None
+
+class LocalClient(ModelClient):
+    def __init__(self, base_url):
+        self.client = OpenAI(base_url=base_url)
+
+    def chat_completion(self, messages, **kwargs):
+        try:
+            completion = self.client.chat.completions.create(
+                messages=messages,
+                **kwargs
+            )
+            return completion.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"Error during Local API request: {e}")
+            return None
+
+class InfinigenceClient(ModelClient):
+    def __init__(self, api_key):
+        self.api_key = api_key
+
+    def chat_completion(self, messages, **kwargs):
+        model = kwargs.get('model', 'qwen2.5-7b-instruct')
+        url = f"https://cloud.infini-ai.com/maas/{model}/nvidia/chat/completions"
+        
+        payload = {
+            "model": model,
+            "messages": messages,
+            **kwargs
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']['content']
+        except Exception as e:
+            logger.warning(f"Error during Infinigence API request: {e}")
+            return None
+
+class QueryProcessor:
+    def __init__(self, query, prompt_templates):
+        self.query = query
+        self.prompt_templates = prompt_templates
+        self.client = self._get_client()
+
+    def _get_client(self):
+        model_type = self.query["model_type"]
+        if model_type == "openai":
+            return OpenAIClient(api_key=get_api_key("openai"))
+        elif model_type == "local":
+            server = read_yaml(self.query['model'])
+            base_url = f"http://{server.get('host', '127.0.0.1')}:{server.get('port', 8000)}/v1"
+            self.query['model'] = server['model-tag']
+            return LocalClient(base_url)
+        elif model_type == "infinigence":
+            return InfinigenceClient(api_key=get_api_key("infinigence"))
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}")
+
+    def process_query(self):
+        if self.query['query_type'] == 'chat':
+            self.process_chats()
+        elif self.query['query_type'] == 'instruction':
+            self.process_instruction()
+        else:
+            raise ValueError(f"Unsupported query type: {self.query['query_type']}")
+
+    def _get_stop_pattern(self, model_name):
+        # 根据模型名称设置默认的stop pattern
+        model_name_lower = model_name.lower()
+        if 'llama' in model_name_lower:
+            return ["Human:", "Assistant:"]
+        elif 'claude' in model_name_lower:
+            return ["\n\nHuman:", "\n\nAssistant:"]
+        elif 'mistral' in model_name_lower:
+            return ["[INST]", "[/INST]"]
+        else:
+            # 对于其他模型,使用一个通用的stop pattern
+            return ["\nUser:", "\nAssistant:"]
+
+    def process_chats(self):
+        chats = self.query.get('chats', [])
+        for chat in chats:
+            logger.info(f"Processing chat: {chat.get('name', 'Unnamed chat')}")
+            messages = chat.get('messages', [])
+            updated_messages = []
+            
+            model_name = self.query.get('model', 'gpt-3.5-turbo')
+            stop_pattern = self._get_stop_pattern(model_name)
+
+            for message in messages:
+                if message['role'] == 'assistant' and message['content'] == '***TBA***':
+                    response = self.client.chat_completion(
+                        updated_messages,
+                        model=model_name,
+                        temperature=self.query.get('temperature', 0.7),
+                        max_tokens=self.query.get('max_tokens', 150),
+                        top_p=self.query.get('top_p', 1.0),
+                        frequency_penalty=self.query.get('frequency_penalty', 0.0),
+                        presence_penalty=self.query.get('presence_penalty', 0.0),
+                        n=self.query.get('n', 1),
+                        stop=self.query.get('stop', []) + stop_pattern,
+                    )
+                    if response:
+                        message['content'] = response
+                        updated_messages.append(message)
+                        print(f"{message['role'].capitalize()}: " + Fore.YELLOW + f"{message['content']}".strip() + Fore.RESET)
+                    else:
+                        logger.warning("Failed to get a response from the model.")
+                        break
+                else:
+                    updated_messages.append(message)
+                    print(f"{message['role'].capitalize()}: {message['content']}".strip())
+
+    def process_instruction(self):
+        # TODO: Implement instruction processing
+        raise NotImplementedError("Instruction query type is not yet supported.")
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Large Language Model Query Tool")
@@ -16,9 +162,6 @@ def parse_arguments():
     return parser.parse_args()
 
 def get_api_key(provider):
-    """
-    根据提供商名称获取API密钥
-    """
     key_name = f"{provider.upper()}_API_KEY"
     api_key = os.getenv(key_name)
     
@@ -27,132 +170,9 @@ def get_api_key(provider):
     
     return api_key
 
-def format_prompt(template, **kwargs):
-    return template.format(**kwargs)
-
-def openai_api_request(client, query):
-    try:
-        messages = [
-            {"role": "system", "content": query.get('system_message', "You are a helpful assistant.")},
-            {"role": "user", "content": query['instruction']}
-        ]
-
-        # Prepare the completion parameters
-        completion_params = {
-            'model': query.get('model', 'gpt-3.5-turbo'),
-            'messages': messages,
-            'temperature': query.get('temperature', 0.7),
-            'max_tokens': query.get('max_tokens', 150),
-            'top_p': query.get('top_p', 1.0),
-            'frequency_penalty': query.get('frequency_penalty', 0.0),
-            'presence_penalty': query.get('presence_penalty', 0.0),
-            'n': query.get('n', 1)
-        }
-
-        # Add optional parameters only if they are present in the query
-        if 'stop' in query:
-            completion_params['stop'] = query['stop']
-
-        completion = client.chat.completions.create(**completion_params)
-        print(completion.choices[0].message)
-        return completion.choices[0].message
-    except Exception as e:
-        print(f"Error during API request: {e}")
-        return None
-
-def model_query_local(query):
-    server = read_yaml(query['model'])
-    server_host = server.get('host', '127.0.0.1')
-    server_port = server.get('port', 8000)
-    client = OpenAI(
-        base_url=f"http://{server_host}:{server_port}/v1",
-    )
-    if server_host == 'localhost' or server_host.startswith('127.'):
-        os.environ.pop('HTTP_PROXY', None)
-        os.environ.pop('HTTPS_PROXY', None)
-
-    query['model'] = server['model-tag']
-    openai_api_request(client, query)
-
-def model_query_openai(query):
-    client = OpenAI()
-    openai_api_request(client, query)
-
-def model_query_anthropic(query):
-    url = "https://api.anthropic.com/maas/v1/engines/davinci/completions"
-
-    payload = {
-        "model": "davinci",
-        "prompt": query,
-        "max_tokens": 150
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer %s" % get_api_key("anthropic")
-    }
-
-    response = requests.post(url, json=payload, headers=headers)
-
-    print(response.json())
-
-def model_query_infinigence(query):
-    model = query["model"]
-
-    url = f"https://cloud.infini-ai.com/maas/{model}/nvidia/chat/completions"
-
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": query['formatted_prompt']
-            },
-        ]
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer %s" % get_api_key("infinigence")
-    }
-
-    response = requests.post(url, json=payload, headers=headers)
-
-    print(response.json())
-
 def read_yaml(file_path):
     with open(file_path, 'r') as file:
         return yaml.safe_load(file)
-
-def format_prompt(template, **kwargs):
-    return template.format(**kwargs)
-
-def process_query(query, prompt_templates):
-    prompt_type = query.get('prompt_type', 'default')
-    template = prompt_templates.get(prompt_type, prompt_templates['default'])
-    
-    # 准备格式化参数
-    format_args = {k: v for k, v in query.items() if k != 'prompt_type'}
-    
-    # 格式化prompt
-    formatted_prompt = format_prompt(template['template'], **format_args)
-    
-    # 更新query字典
-    query['formatted_prompt'] = formatted_prompt
-
-def dispatch_query(query):
-    if query["type"] == "openai":
-        # 这里实现 OpenAI 模型的查询逻辑
-        model_query_openai(query)
-    elif query["type"] == "local":
-        # 这里实现本地模型的查询逻辑
-        model_query_local(query)
-    elif query["type"] == "anthropic":
-        # 这里实现 Anthropic 模型的查询逻辑
-        pass
-    elif query["type"] == "infinigence":
-        # 这里实现 Infinigence 模型的查询逻辑
-        model_query_infinigence(query)
-    else:
-        raise ValueError(f"Unknown type: {query['type']}")
 
 def main():
     load_dotenv()
@@ -160,15 +180,14 @@ def main():
     query = read_yaml(args.query_file)
     prompt_templates = read_yaml(args.prompt_file)
 
-    # 处理query，应用prompt模板
-    process_query(query, prompt_templates)
+    processor = QueryProcessor(query, prompt_templates)
     
     if args.interactive:
         print("Running in interactive mode.")
-        # 这里实现交互模式的逻辑
+        # TODO: Implement interactive mode logic
     else:
         print("Running in non-interactive mode.")
-        dispatch_query(query)
+        processor.process_query()
 
 if __name__ == "__main__":
     main()

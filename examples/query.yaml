@@ -1,4 +1,55 @@
-type: infinigence
-model: qwen2.5-72b-instruct
-prompt_type: code_explanation
-instruction: "def fibonacci(n):\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)"
+model_type: openai
+model: gpt-3.5-turbo
+# model_type: local
+# model: server.yaml
+# model_type: infinigence
+# model: qwen2.5-72b-instruct
+query_type: chat
+temperature: 0.5
+max_tokens: 100
+top_p: 0.9
+frequency_penalty: 0.2
+presence_penalty: 0.2
+stop: ["Answer:", "Classification:"]
+instruction: "Classify the questions based on whether their answer type is a Number, Location, Person, Description, Entity, or Abbreviation."
+chats:
+  - name: "Question Classification with TBA"
+    messages:
+      - role: system
+        content: "You are an expert in question classification."
+      - role: user
+        content: "Classify the following question based on whether its answer type is a Number, Location, Person, Description, Entity, or Abbreviation."
+      - role: assistant
+        content: "Certainly! I'd be happy to help classify questions based on their answer types. Please provide the question you'd like me to classify."
+      - role: user
+        content: "Question: How did serfdom develop in and then leave Russia?"
+      - role: assistant
+        content: "Description"
+      - role: user
+        content: "Question: Where was Ozzy Osbourne born?"
+      - role: assistant
+        content: "***TBA***"
+      - role: user
+        content: "You should answer my question with yes or no: Have you seen this sentence: {Where was Ozzy Osbourne born?}"
+      - role: assistant
+        content: "***TBA***"
+  - name: "Mixed Predefined and TBA Responses"
+    messages:
+      - role: system
+        content: "You are an expert in question classification."
+      - role: user
+        content: "Please classify the following questions based on their answer types."
+      - role: assistant
+        content: "Of course! I'm ready to classify the questions you provide. Please go ahead and ask your questions."
+      - role: user
+        content: "Question 1: What is the capital of France?"
+      - role: assistant
+        content: "Answer Type: Location"
+      - role: user
+        content: "Question 2: Who invented the telephone?"
+      - role: assistant
+        content: "***TBA***"
+      - role: user
+        content: "Question 3: What is the speed of light?"
+      - role: assistant
+        content: "***TBA***"
