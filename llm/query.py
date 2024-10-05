@@ -7,6 +7,7 @@ from openai import OpenAI
 from tools.utils import get_logger
 from colorama import Fore, init
 from abc import ABC, abstractmethod
+import logging
 
 logger = get_logger("query", "info")
 init()
@@ -73,10 +74,15 @@ class InfinigenceClient(ModelClient):
             return None
 
 class QueryProcessor:
-    def __init__(self, query, prompt_templates):
+    def __init__(self, query, prompt_templates, full_output):
         self.query = query
         self.prompt_templates = prompt_templates
         self.client = self._get_client()
+        self.full_output = full_output
+
+        # 根据 full_output 设置 logger 级别
+        if not self.full_output:
+            logger.setLevel(logging.WARNING)  # 只输出警告和错误
 
     def _get_client(self):
         model_type = self.query["model_type"]
@@ -123,6 +129,8 @@ class QueryProcessor:
             model_name = self.query.get('model', 'gpt-3.5-turbo')
             stop_pattern = self._get_stop_pattern(model_name)
 
+            llm_responses = []  # To store LLM responses
+
             for message in messages:
                 if message['role'] == 'assistant' and message['content'] == '***TBA***':
                     response = self.client.chat_completion(
@@ -139,13 +147,19 @@ class QueryProcessor:
                     if response:
                         message['content'] = response
                         updated_messages.append(message)
-                        print(f"{message['role'].capitalize()}: " + Fore.YELLOW + f"{message['content']}".strip() + Fore.RESET)
+                        llm_responses.append(response)
+                        if self.full_output:
+                            print(f"{message['role'].capitalize()}: " + Fore.YELLOW + f"{message['content']}".strip() + Fore.RESET)
                     else:
                         logger.warning("Failed to get a response from the model.")
                         break
                 else:
                     updated_messages.append(message)
-                    print(f"{message['role'].capitalize()}: {message['content']}".strip())
+                    if self.full_output:
+                        print(f"{message['role'].capitalize()}: {message['content']}".strip())
+
+            if not self.full_output:
+                print("\n-----\n".join(llm_responses))
 
     def process_instruction(self):
         # TODO: Implement instruction processing
@@ -155,6 +169,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Large Language Model Query Tool")
     parser.add_argument("-i", "--interactive", action="store_true", 
                         help="Run in interactive mode")
+    parser.add_argument("-f", "--full", action="store_true", 
+                        help="Output full conversation (default: LLM responses only)")
     parser.add_argument("-q", "--query_file", default=os.path.join(os.path.dirname(__file__), "examples", "query.yaml"), 
                         help="Path to the YAML query file (default: query.yaml)")
     parser.add_argument("-p", "--prompt_file", default=os.path.join(os.path.dirname(__file__), "examples", "prompt-templates.yaml"),
@@ -180,13 +196,13 @@ def main():
     query = read_yaml(args.query_file)
     prompt_templates = read_yaml(args.prompt_file)
 
-    processor = QueryProcessor(query, prompt_templates)
+    processor = QueryProcessor(query, prompt_templates, args.full)
     
     if args.interactive:
-        print("Running in interactive mode.")
+        logger.info("Running in interactive mode.")
         # TODO: Implement interactive mode logic
     else:
-        print("Running in non-interactive mode.")
+        logger.info("Running in non-interactive mode.")
         processor.process_query()
 
 if __name__ == "__main__":
