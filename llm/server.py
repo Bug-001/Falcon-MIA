@@ -25,7 +25,7 @@ def select_chat_template(model_name):
             return os.path.join('templates', template)
     
     # 如果没有找到匹配的模板，返回默认模板
-    return os.path.join('templates', default_template)
+    return os.path.join(os.path.dirname(__file__), 'templates', default_template)
 
 def main():
     parser = argparse.ArgumentParser(description="VLLM server launcher")

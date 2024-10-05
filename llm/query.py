@@ -4,7 +4,7 @@ import requests
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
-from utils import get_logger
+from tools.utils import get_logger
 from colorama import Fore, init
 from abc import ABC, abstractmethod
 
@@ -155,9 +155,9 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Large Language Model Query Tool")
     parser.add_argument("-i", "--interactive", action="store_true", 
                         help="Run in interactive mode")
-    parser.add_argument("-q", "--query_file", default="examples/query.yaml", 
+    parser.add_argument("-q", "--query_file", default=os.path.join(os.path.dirname(__file__), "examples", "query.yaml"), 
                         help="Path to the YAML query file (default: query.yaml)")
-    parser.add_argument("-p", "--prompt_file", default="examples/prompt-templates.yaml",
+    parser.add_argument("-p", "--prompt_file", default=os.path.join(os.path.dirname(__file__), "examples", "prompt-templates.yaml"),
                         help="Path to the prompt templates file (default: prompt_templates.yaml)")
     return parser.parse_args()
 

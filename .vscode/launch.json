@@ -16,7 +16,7 @@
             "name": "Python: VLLM Debug",
             "type": "debugpy",
             "request": "launch",
-            "program": "server.py",
+            "program": "llm/server.py",
             "args": [
                 "meta-llama/Meta-Llama-3-8B",
                 "--config", "server.yaml",

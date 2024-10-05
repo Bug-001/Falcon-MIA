@@ -11,9 +11,9 @@ import torch
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training, PrefixTuningConfig, PromptEncoderConfig, IA3Config
 from transformers import LlamaTokenizer
 
-from data_preprocessing import preprocess
+from tools.data_preprocessing import preprocess
 # from remote_model_api import RemoteModelAPI
-from utils import get_logger, print_trainable_parameters
+from tools.utils import get_logger, print_trainable_parameters
 
 logger = get_logger("finetune", "info")
 
@@ -84,7 +84,7 @@ def initialize_model(model_config, peft_config, hardware_config, misc_config):
         model_config_obj.use_cache = False
 
         if model_config.use_flash_attention and model_config_obj.model_type == "llama" and torch.cuda.get_device_capability()[0] >= 8:
-            from llama_patch import replace_attn_with_flash_attn
+            from llm.tools.llama_patch import replace_attn_with_flash_attn
             replace_attn_with_flash_attn()
 
         kwargs = {"device_map": "auto"} if hardware_config.split_model else {"device_map": None}
@@ -253,6 +253,8 @@ def main(config_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="fine-tune-example.yaml", help="Path to the YAML config file")
+    parser.add_argument("--config", type=str, 
+                        default=os.path.join(os.path.dirname(__file__), "examples", "fine-tune.yaml"),
+                        help="Path to the YAML config file")
     args = parser.parse_args()
     main(args.config)
