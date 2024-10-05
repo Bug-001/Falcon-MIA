@@ -121,7 +121,8 @@ class QueryProcessor:
 
     def process_chats(self):
         chats = self.query.get('chats', [])
-        for chat in chats:
+
+        for i, chat in enumerate(chats):
             logger.info(f"Processing chat: {chat.get('name', 'Unnamed chat')}")
             messages = chat.get('messages', [])
             updated_messages = []
@@ -158,8 +159,12 @@ class QueryProcessor:
                     if self.full_output:
                         print(f"{message['role'].capitalize()}: {message['content']}".strip())
 
+            # 在每个chat结束后添加分隔符
             if not self.full_output:
-                print("\n-----\n".join(llm_responses))
+                if llm_responses:  # 如果当前chat有LLM响应
+                    print("\n-----\n".join(llm_responses))
+                    if i < len(chats) - 1:  # 如果不是最后一个chat
+                        print("\n----------\n")
 
     def process_instruction(self):
         # TODO: Implement instruction processing
