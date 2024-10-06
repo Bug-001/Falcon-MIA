@@ -76,7 +76,7 @@ The `fine-tune.yaml` file contains all the necessary configurations for fine-tun
 To query a model, use the `query.py` script with a configuration file:
 
 ```
-python query.py --query_file path/to/your/query.yaml --prompt_file path/to/your/prompt-templates.yaml [--full]
+python query.py --config path/to/your/config.yaml [--full]
 ```
 
 The `query.yaml` file contains all the necessary configurations for querying:

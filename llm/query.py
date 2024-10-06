@@ -4,10 +4,11 @@ import requests
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools.utils import get_logger
 from colorama import Fore, init
 from abc import ABC, abstractmethod
 import logging
+
+from .tools.utils import get_logger
 
 logger = get_logger("query", "info")
 init()
@@ -74,9 +75,8 @@ class InfinigenceClient(ModelClient):
             return None
 
 class QueryProcessor:
-    def __init__(self, query, prompt_templates, full_output):
+    def __init__(self, query, full_output=False):
         self.query = query
-        self.prompt_templates = prompt_templates
         self.client = self._get_client()
         self.full_output = full_output
 
@@ -100,9 +100,9 @@ class QueryProcessor:
 
     def process_query(self):
         if self.query['query_type'] == 'chat':
-            self.process_chats()
+            return self.process_chats()
         elif self.query['query_type'] == 'instruction':
-            self.process_instruction()
+            return self.process_instruction()
         else:
             raise ValueError(f"Unsupported query type: {self.query['query_type']}")
 
@@ -110,7 +110,7 @@ class QueryProcessor:
         # 根据模型名称设置默认的stop pattern
         model_name_lower = model_name.lower()
         if 'llama' in model_name_lower:
-            return ["Human:", "Assistant:"]
+            return ["[INST]", "[/INST]", "</s>"]
         elif 'claude' in model_name_lower:
             return ["\n\nHuman:", "\n\nAssistant:"]
         elif 'mistral' in model_name_lower:
@@ -122,6 +122,8 @@ class QueryProcessor:
     def process_chats(self):
         chats = self.query.get('chats', [])
 
+        all_responses = []
+
         for i, chat in enumerate(chats):
             logger.info(f"Processing chat: {chat.get('name', 'Unnamed chat')}")
             messages = chat.get('messages', [])
@@ -132,39 +134,54 @@ class QueryProcessor:
 
             llm_responses = []  # To store LLM responses
 
+            def send_to_llm(messages):
+                response = self.client.chat_completion(
+                    messages,
+                    model=model_name,
+                    temperature=self.query.get('temperature', 0.7),
+                    max_tokens=self.query.get('max_tokens', 150),
+                    top_p=self.query.get('top_p', 1.0),
+                    frequency_penalty=self.query.get('frequency_penalty', 0.0),
+                    presence_penalty=self.query.get('presence_penalty', 0.0),
+                    n=self.query.get('n', 1),
+                    stop=self.query.get('stop', []) + stop_pattern,
+                )
+                if response:
+                    return response
+                else:
+                    logger.warning("Failed to get a response from the model.")
+                    return None
+
             for message in messages:
                 if message['role'] == 'assistant' and message['content'] == '***TBA***':
-                    response = self.client.chat_completion(
-                        updated_messages,
-                        model=model_name,
-                        temperature=self.query.get('temperature', 0.7),
-                        max_tokens=self.query.get('max_tokens', 150),
-                        top_p=self.query.get('top_p', 1.0),
-                        frequency_penalty=self.query.get('frequency_penalty', 0.0),
-                        presence_penalty=self.query.get('presence_penalty', 0.0),
-                        n=self.query.get('n', 1),
-                        stop=self.query.get('stop', []) + stop_pattern,
-                    )
+                    # 如果是assistant的TBA消息,则将前述上文发送到LLM
+                    response = send_to_llm(updated_messages)
                     if response:
-                        message['content'] = response
-                        updated_messages.append(message)
+                        updated_messages.append({"role": "assistant", "content": response})
                         llm_responses.append(response)
                         if self.full_output:
-                            print(f"{message['role'].capitalize()}: " + Fore.YELLOW + f"{message['content']}".strip() + Fore.RESET)
+                            print(f"Assistant: " + Fore.YELLOW + f"{response}".strip() + Fore.RESET)
                     else:
                         logger.warning("Failed to get a response from the model.")
-                        break
                 else:
                     updated_messages.append(message)
                     if self.full_output:
                         print(f"{message['role'].capitalize()}: {message['content']}".strip())
 
-            # 在每个chat结束后添加分隔符
-            if not self.full_output:
-                if llm_responses:  # 如果当前chat有LLM响应
-                    print("\n-----\n".join(llm_responses))
-                    if i < len(chats) - 1:  # 如果不是最后一个chat
-                        print("\n----------\n")
+            # Flush messages if the last message is not from the assistant
+            if updated_messages[-1]['role'] != 'assistant':
+                response = send_to_llm(updated_messages)
+                if response:
+                    updated_messages.append({"role": "assistant", "content": response})
+                    llm_responses.append(response)
+                    if self.full_output:
+                        print(f"Assistant: " + Fore.YELLOW + f"{response}".strip() + Fore.RESET)
+                else:
+                    logger.warning("Failed to get a response from the model.")
+
+            all_responses.append(llm_responses)
+
+        return all_responses
 
     def process_instruction(self):
         # TODO: Implement instruction processing
@@ -176,10 +193,8 @@ def parse_arguments():
                         help="Run in interactive mode")
     parser.add_argument("-f", "--full", action="store_true", 
                         help="Output full conversation (default: LLM responses only)")
-    parser.add_argument("-q", "--query_file", default=os.path.join(os.path.dirname(__file__), "examples", "query.yaml"), 
+    parser.add_argument("-c", "--config", default=os.path.join(os.path.dirname(__file__), "examples", "query.yaml"), 
                         help="Path to the YAML query file (default: query.yaml)")
-    parser.add_argument("-p", "--prompt_file", default=os.path.join(os.path.dirname(__file__), "examples", "prompt-templates.yaml"),
-                        help="Path to the prompt templates file (default: prompt_templates.yaml)")
     return parser.parse_args()
 
 def get_api_key(provider):
@@ -195,20 +210,16 @@ def read_yaml(file_path):
     with open(file_path, 'r') as file:
         return yaml.safe_load(file)
 
-def main():
+if __name__ == "__main__":
     load_dotenv()
     args = parse_arguments()
-    query = read_yaml(args.query_file)
-    prompt_templates = read_yaml(args.prompt_file)
+    query = read_yaml(args.config)
 
-    processor = QueryProcessor(query, prompt_templates, args.full)
+    processor = QueryProcessor(query, args.full)
     
     if args.interactive:
         logger.info("Running in interactive mode.")
         # TODO: Implement interactive mode logic
     else:
         logger.info("Running in non-interactive mode.")
-        processor.process_query()
-
-if __name__ == "__main__":
-    main()
+        print(processor.process_query())

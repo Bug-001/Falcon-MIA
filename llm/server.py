@@ -22,7 +22,7 @@ def select_chat_template(model_name):
     # 查找匹配的模板
     for key, template in template_mapping.items():
         if key in model_name.lower():
-            return os.path.join('templates', template)
+            return os.path.join(os.path.dirname(__file__), 'templates', template)
     
     # 如果没有找到匹配的模板，返回默认模板
     return os.path.join(os.path.dirname(__file__), 'templates', default_template)
