@@ -13,6 +13,7 @@ def select_chat_template(model_name):
         'llama': 'llama.jinja',
         'claude': 'claude.jinja',
         'mistral': 'mistral.jinja',
+        'vicuna': 'llama.jinja',
         # 可以根据需要添加更多映射
     }
     

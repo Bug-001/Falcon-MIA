@@ -110,11 +110,13 @@ class QueryProcessor:
         # 根据模型名称设置默认的stop pattern
         model_name_lower = model_name.lower()
         if 'llama' in model_name_lower:
-            return ["[INST]", "[/INST]", "</s>"]
+            return ["[INST]", "[/INST]", "</s>", "[/s]"]
         elif 'claude' in model_name_lower:
             return ["\n\nHuman:", "\n\nAssistant:"]
         elif 'mistral' in model_name_lower:
             return ["[INST]", "[/INST]"]
+        elif 'vicuna' in model_name_lower:
+            return ["[INST]", "[/INST]", "</s>", "[/s]"]
         else:
             # 对于其他模型,使用一个通用的stop pattern
             return ["\nUser:", "\nAssistant:"]
