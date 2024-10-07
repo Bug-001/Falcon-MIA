@@ -148,7 +148,7 @@ class QueryProcessor:
                     n=self.query.get('n', 1),
                     stop=self.query.get('stop', []) + stop_pattern,
                 )
-                if response:
+                if response is not None:
                     return response
                 else:
                     logger.warning("Failed to get a response from the model.")
@@ -173,7 +173,7 @@ class QueryProcessor:
             # Flush messages if the last message is not from the assistant
             if updated_messages[-1]['role'] != 'assistant':
                 response = send_to_llm(updated_messages)
-                if response:
+                if response is not None:
                     updated_messages.append({"role": "assistant", "content": response})
                     llm_responses.append(response)
                     if self.full_output:

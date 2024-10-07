@@ -266,6 +266,9 @@ class InquiryAttack(ICLAttackStrategy):
     def is_member_by_response(self, response):
         words = [self.remove_punctuation(word.lower()) for word in response.split()]
 
+        if len(words) == 0:
+            return None
+
         # 检查负面关键词
         if any(word in self.negative_keywords for word in words):
             return False
@@ -278,6 +281,11 @@ class InquiryAttack(ICLAttackStrategy):
         if "have seen" in response.lower() or "have encountered" in response.lower():
             return True
         
+        if words[0].startswith("1"):
+            return True
+        elif words[0].startswith("0"):
+            return False
+
         # 模型未给出有效信息
         return None
 
@@ -424,25 +432,23 @@ class BrainwashAttack(ICLAttackStrategy):
     def brainwashed(self, response: str, wrong_label: str) -> bool:
         # 获取所有可能的标签
         other_labels = {label.lower() for label in self.label_translation.values()}
-        other_labels.remove(wrong_label.lower())
+        wrong_label = wrong_label.lower()
+        other_labels.remove(wrong_label)
 
         # 断句
         words = [self.remove_punctuation(word.lower()) for word in response.split()]
         
         # 检查错误标签是否在响应中，且其他标签都不在响应中
-        wrong_label_in_response = wrong_label in words
-        other_labels_not_in_response = all(label not in words for label in other_labels)
+        wrong_label_in_response = any(wrong_label in word for word in words)
+        other_labels_not_in_response = all(all(label not in word for word in words) for label in other_labels)
         
         return wrong_label_in_response and other_labels_not_in_response
 
     def binary_search_iterations(self, model: ModelInterface, prompt: List[Dict[str, str]], 
                                  attack_sample: Dict[str, str], wrong_label: str) -> int:
-        left, right = 0, self.max_misleadings
-        mid = self.max_misleadings
-        while left < right:
-            old_mid = mid
+        def generate_prompt_and_request(iterations):
             query_prompt = prompt.copy()
-            for _ in range(mid):
+            for _ in range(iterations):
                 query_prompt = query_prompt + [{
                     "role": "user",
                     "content": self.user_prompt.format(input=attack_sample["input"])
@@ -454,15 +460,27 @@ class BrainwashAttack(ICLAttackStrategy):
                 "role": "user",
                 "content": self.user_prompt.format(input=attack_sample["input"])
             }]
-            response = model.query(query_prompt, "Brainwash Attack")[0]
+            return model.query(query_prompt, "Brainwash Attack")[0]
+        
+        left, right = 0, self.max_misleadings
+        mid = self.max_misleadings
+        while left < right:
+            old_mid = mid
+            response = generate_prompt_and_request(mid)
             if self.brainwashed(response, wrong_label):
                 right = mid
             else:
                 left = mid + 1
             mid = (left + right) // 2
-        if mid != self.max_misleadings:
-            logger.info(f"Brainwashed to \"{wrong_label}\" in {mid} turns: {response}")
-        return mid
+        final_response = generate_prompt_and_request(old_mid)
+        if old_mid != self.max_misleadings:
+            while not self.brainwashed(final_response, wrong_label):
+                old_mid += 1
+                final_response = generate_prompt_and_request(old_mid)
+            logger.info(f"Brainwashed to \"{wrong_label}\" in {old_mid} turns: {final_response}")
+        else:
+            logger.info(f"Failed to brainwash to \"{wrong_label}\" in {old_mid} turns: {final_response}")
+        return old_mid
 
     def attack(self, model: ModelInterface):
         self.results = []

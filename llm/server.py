@@ -14,6 +14,7 @@ def select_chat_template(model_name):
         'claude': 'claude.jinja',
         'mistral': 'mistral.jinja',
         'vicuna': 'llama.jinja',
+        'gpt2-xl': 'gpt2-xl.jinja',
         # 可以根据需要添加更多映射
     }
     
