@@ -1,19 +1,9 @@
 {% for message in messages %}
 {% if message['role'] == 'system' %}
-<s>[INST] <<SYS>>
+{{ message['content'] }} {% elif message['role'] == 'user' %}
+{{ message['content'] }} {% elif message['role'] == 'assistant' %}
 {{ message['content'] }}
-<</SYS>>
-
-{% elif message['role'] == 'user' %}
-{% if loop.first and loop.length > 1 %}
-{{ message['content'] }} [/INST]
 {% else %}
-[INST] {{ message['content'] }} [/INST]
-{% endif %}
-{% elif message['role'] == 'assistant' %}
 {{ message['content'] }}
-</s>
 {% endif %}
 {% endfor %}
-{% if add_generation_prompt %}
-<s>[INST] {% endif %}

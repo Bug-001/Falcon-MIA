@@ -119,7 +119,7 @@ class QueryProcessor:
             return ["[INST]", "[/INST]", "</s>", "[/s]"]
         else:
             # 对于其他模型,使用一个通用的stop pattern
-            return ["\nUser:", "\nAssistant:"]
+            return []
 
     def process_chats(self):
         chats = self.query.get('chats', [])
