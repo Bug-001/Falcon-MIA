@@ -1,12 +1,25 @@
 # output_manager.py
 
 import os
+import numpy as np
 import json
 import pickle
 import functools
 import hashlib
 from typing import Any, Callable
 from matplotlib import pyplot as plt
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(NumpyEncoder, self).default(obj)
 
 class FileManager:
     def __init__(self, name: str):
@@ -24,7 +37,7 @@ class FileManager:
     def save_json(self, filename: str, data: Any):
         filepath = os.path.join(self.data_dir, filename)
         with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
+            json.dump(data, f, indent=2, cls=NumpyEncoder)
 
     def save_image(self, filename: str, fig: plt.Figure):
         filepath = os.path.join(self.image_dir, filename)

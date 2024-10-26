@@ -6,3 +6,5 @@
 *_cache
 __pycache__
 wandb
+
+output

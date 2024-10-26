@@ -224,4 +224,6 @@ if __name__ == "__main__":
         # TODO: Implement interactive mode logic
     else:
         logger.info("Running in non-interactive mode.")
-        print(processor.process_query())
+        print('----------')
+        for s in processor.process_query()[0]:
+            print(s, end='\n----------\n')

@@ -16,7 +16,7 @@ model:
 
 data:
   dataset_name: "ag_news"
-  prompt_template: "default"
+  prompt_template: "default" # 可以使用"custom"和prompt_input在此方便地自定义prompt
   dataset_config_name: null
   hf_cache_dir: null  # 新增，用于存储从HuggingFace下载的数据集缓存
   # preprocessed_cache_dir: "./input_cache"  # 新增，用于存储预处理后的数据缓存，TODO

@@ -42,42 +42,56 @@ def cache_to_disk(func):
 class DefaultProcessor:
     def __init__(self, data_config):
         self.data_config = data_config
-        self.prompt = "Classify the following text:\n\nText: {text}\n\nCategory:"
-    
-    def process(self):
-        raise NotImplementedError("This method should be implemented by subclasses")
-
-    def get_prompt(self):
-        prompt_template = self.data_config.prompt_template
-        if prompt_template == 'custom':
-            return self.data_config.prompt_input
-        elif prompt_template == 'default':
-            return self.prompt
-        else:
-            raise ValueError(f"Unsupported prompt template: {prompt_template}")
-
-    def apply_prompt(self, example):
-        prompt = self.get_prompt()
-        return {
-            "x": prompt.format(**example),
-            "y": example["label"]
-        }
-
-class AGNewsProcessor(DefaultProcessor):
-    def __init__(self, data_config):
-        super().__init__(data_config)
-        self.prompt = "Classify the following news article into one of these categories: World, Sports, Business, Sci/Tech.\n\nArticle: {text}\n\nCategory:"
-        self.label_map = {0: "World", 1: "Sports", 2: "Business", 3: "Sci/Tech"}
+        self.input = "Answer the following question:\n\nQuestion: {text}\n\nAnswer:"
+        self.label = "{label}"
+        self.dataset_name = data_config.dataset_name
     
     @cache_to_disk
     def process(self):
-        dataset = load_dataset("ag_news", cache_dir=self.data_config.hf_cache_dir)  # 使用HuggingFace缓存目录
+        dataset = load_dataset(self.dataset_name, cache_dir=self.data_config.hf_cache_dir)  # 使用HuggingFace缓存目录
         dataset = dataset.map(self.apply_prompt)
         
         train_set = dataset["train"]
         test_set = dataset["test"]
         
         return train_set, test_set, test_set
+
+    def get_prompt(self):
+        prompt_template = self.data_config.prompt_template
+        if prompt_template == 'custom':
+            return self.data_config.prompt_input
+        elif prompt_template == 'default':
+            return self.input
+        else:
+            raise ValueError(f"Unsupported prompt template: {prompt_template}")
+
+    def apply_prompt(self, example):
+        input_prompt = self.get_prompt()
+        output = self.label.format(**example)
+        return {
+            "x": input_prompt.format(**example),
+            "y": self.label_map.get(output, output)
+        }
+
+class AGNewsProcessor(DefaultProcessor):
+    def __init__(self, data_config):
+        super().__init__(data_config)
+        self.input = "Classify the following news article into one of these categories: World, Sports, Business, Sci/Tech.\n\nArticle: {text}\n\nCategory:"
+        self.label_map = {0: "World", 1: "Sports", 2: "Business", 3: "Sci/Tech"}
+
+class TRECProcessor(DefaultProcessor):
+    def __init__(self, data_config):
+        super().__init__(data_config)
+        self.input_prompt = "Classify the following question based on whether its answer type is a Number, Location, Person, Description, Entity, or Abbreviation.\n\nQuestion: {text}\n\nAnswer:"
+        self.labels = "{coarse_label}"
+        self.label_map = {
+            0: "Abbreviation",
+            2: "Description",
+            1: "Entity",
+            3: "Person",
+            4: "Location",
+            5: "Number"
+        }
 
 def preprocess(data_config):
     dataset_processors = {

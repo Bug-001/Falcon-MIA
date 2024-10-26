@@ -28,6 +28,9 @@ from llm.tools.utils import get_logger
 from llm.query import QueryProcessor
 from utils import FileManager
 
+logger = get_logger("ICL Attack", "info")
+init()
+
 class ModelInterface:
     def __init__(self, query_config):
         self.query_config = query_config
@@ -128,7 +131,7 @@ class ICLDataLoader:
             icl_index = (icl_index + self.batch_size) % len(self.train_dataset)
             
             if self.selected_attack_sample == 0:
-                # 随机选择策略（原有行为）
+                # 随机选择策略
                 is_member = (i % 2 == 0)
                 if is_member:
                     attack_sample = icl_samples[i % self.batch_size]
@@ -179,7 +182,7 @@ class ICLAttackStrategy(ABC):
         
         batch_size = data_config.get('num_demonstrations', 1)
         num_attacks = self.attack_config.get('num_attacks', 100)
-        selected_attack_sample = self.attack_config.get('selected_attack_sample', 0)
+        selected_attack_sample = data_config.get('selected_attack_sample', 0)
         if data_loader:
             self.data_loader = data_loader
         else:
@@ -923,17 +926,16 @@ class ObfuscationAttack(ICLAttackStrategy):
             EvaluationMetrics.plot_roc(fpr, tpr, metrics['auc'], 'obfuscation_roc_curve.png')
             EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, 'obfuscation_log_roc_curve.png')
 
+        self.fm.save_json('evaluation.json', metrics)
+        self.fm.save_json('results.json', self.results)
+        self.fm.save_json('scores.json', self.scores)
         return metrics
 
 def load_yaml_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, 'r') as file:
         return yaml.safe_load(file)
 
-def main(args):
-    data_config = load_yaml_config(args.data)
-    attack_config = load_yaml_config(args.attack)
-    query_config = load_yaml_config(args.query)
-
+def main(data_config, attack_config, query_config):
     attack_strategy = ICLAttackStrategy.create(attack_config)
     if attack_strategy is None:
         raise ValueError(f"Attack type {attack_config['type']} is not supported.")
@@ -944,9 +946,10 @@ def main(args):
     except KeyboardInterrupt:
         pass
     results = attack_strategy.evaluate()
-    print(f"Attack results: {results}")
+    print(f"Attack results for {attack_config['name']}: {results}")
 
 if __name__ == "__main__":
+    # Keep the original command-line argument parsing for backward compatibility
     load_dotenv()
 
     parser = argparse.ArgumentParser()
@@ -956,8 +959,8 @@ if __name__ == "__main__":
     parser.add_argument("--log-level", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         default='INFO', help="Set the logging level")
     args = parser.parse_args()
-    
-    logger = get_logger("ICL Attack", args.log_level)
-    init()
 
-    main(args)
+    data_config = load_yaml_config(args.data)
+    attack_config = load_yaml_config(args.attack)
+    query_config = load_yaml_config(args.query)
+    main(data_config, attack_config, query_config)
