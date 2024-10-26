@@ -74,6 +74,21 @@ class InfinigenceClient(ModelClient):
             logger.warning(f"Error during Infinigence API request: {e}")
             return None
 
+class AIMLClient(ModelClient):
+    def __init__(self, api_key):
+        self.client = OpenAI(api_key=api_key, base_url="https://api.aimlapi.com/v1")
+
+    def chat_completion(self, messages, **kwargs):
+        try:
+            completion = self.client.chat.completions.create(
+                messages=messages,
+                **kwargs
+            )
+            return completion.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"Error during AI/ML API request: {e}")
+            return None
+
 class QueryProcessor:
     def __init__(self, query, full_output=False):
         self.query = query
@@ -88,6 +103,8 @@ class QueryProcessor:
         model_type = self.query["model_type"]
         if model_type == "openai":
             return OpenAIClient(api_key=get_api_key("openai"))
+        elif model_type == "aiml":
+            return AIMLClient(api_key=get_api_key("aiml"))
         elif model_type == "local":
             server = read_yaml(self.query['model'])
             base_url = f"http://{server.get('host', '127.0.0.1')}:{server.get('port', 8000)}/v1"
