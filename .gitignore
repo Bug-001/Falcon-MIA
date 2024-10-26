@@ -2,6 +2,7 @@
 
 *.yaml
 !llm/examples/*.yaml
+!data/*.yaml
 
 *_cache
 __pycache__

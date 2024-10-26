@@ -1,0 +1,23 @@
+# trec.yaml
+
+name: "trec"
+num_demonstrations: 6
+selected_attack_sample: 0 # 0 for random, -1 for non-member samples
+input_field: "text"
+output_field: "coarse_label"
+label_translation:
+  5: "Number"
+  4: "Location"
+  3: "Person"
+  2: "Description"
+  1: "Entity"
+  0: "Abbreviation"
+icl_prompt:
+  initial_conversation:
+    - role: "system"
+      content: 'Classify the following question based on whether its answer type is a Number, Location, Person, Description, Entity, or Abbreviation.'
+  demonstration_template:
+    - role: "user"
+      content: "Question: {input}"
+    - role: "assistant"
+      content: "Type: {output}"
