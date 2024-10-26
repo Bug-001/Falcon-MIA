@@ -115,8 +115,18 @@ class EvaluationMetrics:
 class ICLDataLoader:
     def __init__(self, dataset: Dataset, batch_size: int, batch_num: int, seed: int, selected_attack_sample: int = 0):
         self.seed = seed
-        self.train_dataset = dataset['train'].shuffle(seed=self.seed)
-        self.test_dataset = dataset['test'].shuffle(seed=self.seed)
+        if 'test' in dataset.keys():
+            self.train_dataset = dataset['train'].shuffle(seed=self.seed)
+            self.test_dataset = dataset['test'].shuffle(seed=self.seed)
+        else:
+            train_data = dataset['train'].shuffle(seed=self.seed)
+        train_idx, test_idx = train_test_split(
+            range(len(train_data)), 
+            test_size=0.3, 
+            random_state=self.seed
+        )
+        self.train_dataset = train_data.select(train_idx)
+        self.test_dataset = train_data.select(test_idx)
         self.batch_size = batch_size
         self.batch_num = batch_num
         self.selected_attack_sample = selected_attack_sample
@@ -175,7 +185,7 @@ class ICLAttackStrategy(ABC):
 
     def prepare(self, data_config: Dict[str, Any], data_loader: ICLDataLoader = None):
         self.data_config = data_config
-        self.dataset = load_dataset(data_config['name'])
+        self.dataset = load_dataset(data_config['name'], name=data_config.get('config', None))
         self.input_field = data_config['input_field']
         self.output_field = data_config['output_field']
         self.label_translation = data_config.get('label_translation', {})
