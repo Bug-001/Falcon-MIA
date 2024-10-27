@@ -26,7 +26,7 @@ import torch.optim as optim
 
 from llm.tools.utils import get_logger
 from llm.query import QueryProcessor
-from utils import FileManager
+from utils import save_json, output_directory, ExperimentLogger
 
 logger = get_logger("ICL Attack", "info")
 init()
@@ -120,13 +120,13 @@ class ICLDataLoader:
             self.test_dataset = dataset['test'].shuffle(seed=self.seed)
         else:
             train_data = dataset['train'].shuffle(seed=self.seed)
-        train_idx, test_idx = train_test_split(
-            range(len(train_data)), 
-            test_size=0.3, 
-            random_state=self.seed
-        )
-        self.train_dataset = train_data.select(train_idx)
-        self.test_dataset = train_data.select(test_idx)
+            train_idx, test_idx = train_test_split(
+                range(len(train_data)), 
+                test_size=0.3, 
+                random_state=self.seed
+            )
+            self.train_dataset = train_data.select(train_idx)
+            self.test_dataset = train_data.select(test_idx)
         self.batch_size = batch_size
         self.batch_num = batch_num
         self.selected_attack_sample = selected_attack_sample
@@ -180,8 +180,8 @@ class ICLAttackStrategy(ABC):
         self.random_seed = attack_config.get('random_seed', random.randint(0, 1000000))
         random.seed(self.random_seed)
         self.results = []
-        self.fm = FileManager(attack_config.get('name', 'unnamed_experiment'))
         self.label_translation = {}
+        self.logger = ExperimentLogger()
 
     def prepare(self, data_config: Dict[str, Any], data_loader: ICLDataLoader = None):
         self.data_config = data_config
@@ -651,9 +651,9 @@ class BrainwashAttack(ICLAttackStrategy):
 
         # 绘制ROC和log ROC曲线
         if self.attack_config.get('plot_roc', False):
-            EvaluationMetrics.plot_roc(fpr, tpr, roc_auc, self.fm.get_image_path(f'roc_curve_{self.__class__.__name__}.png'))
+            EvaluationMetrics.plot_roc(fpr, tpr, roc_auc, f'roc_curve_{self.__class__.__name__}.png')
         if self.attack_config.get('plot_log_roc', False):
-            EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, self.fm.get_image_path(f'log_roc_curve_{self.__class__.__name__}.png'))
+            EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, f'log_roc_curve_{self.__class__.__name__}.png')
 
         return metrics
 
@@ -717,7 +717,7 @@ class HybridAttack(ICLAttackStrategy):
         plt.title('Training Loss Curve')
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
-        plt.savefig(self.fm.get_image_path('hybrid_training_loss_curve.png'))
+        plt.savefig('hybrid_training_loss_curve.png')
         plt.close()
 
     def prepare(self, data_config: Dict[str, Any]):
@@ -794,7 +794,7 @@ class HybridAttack(ICLAttackStrategy):
         plt.grid(True, linestyle='--', alpha=0.7)
 
         # 保存图像
-        plt.savefig(self.fm.get_image_path('hybrid_attack_scores.png'))
+        plt.savefig('hybrid_attack_scores.png')
         plt.close()
 
         logger.info("Hybrid attack scores plot saved as 'hybrid_attack_scores.png'")
@@ -819,7 +819,7 @@ class HybridAttack(ICLAttackStrategy):
         print(f"Repeat: {self.repeat_attack.evaluate()}")
         print(f"Brainwash: {self.brainwash_attack.evaluate()}")
 
-        self.fm.save_json('evaluation.json', metrics)
+        save_json('evaluation.json', metrics)
 
         return metrics
 
@@ -834,57 +834,65 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.attack_template = attack_config.get('obsfucation_attack_template', "Classify the following text: {sample}")
 
     def attack(self, model):
-        self.results = []
-        self.scores = []
-
-        for icl_samples, attack_sample, is_member in tqdm(self.data_loader):
+        # 创建主表格和详细记录表格
+        self.logger.new_table("attack_results")
+        self.logger.new_table("level_details")
+        
+        for i, (icl_samples, attack_sample, is_member) in enumerate(tqdm(self.data_loader)):
+            # 为主表格创建新行
+            main_row = self.logger.new_row("attack_results")
+            
             icl_prompt = self.generate_icl_prompt(icl_samples)
             attack_sample = self.get_attack_sample(attack_sample)
             
             original_text = attack_sample["input"]
             original_label = attack_sample["output"]
 
-            logger.info(f"Original: {original_text}")
-            logger.info(f"Membership: {is_member}")
-            logger.info(f"Label: {original_label}")
+            # 记录并打印基本信息
+            self.logger.add("Original", original_text)
+            self.logger.add("Membership", is_member)
+            self.logger.add("Label", original_label)
             
             similarities = []
+            # 处理每个混淆级别
             for level in np.linspace(0.6, self.max_obfuscation_level, 5):
+                level_row = self.logger.new_row("level_details")
+                
                 obfuscated_text = self.obfuscator.obfuscate(original_text, level=level)
                 query_prompt = icl_prompt + [{
                     "role": "user",
                     "content": self.attack_template.format(input=obfuscated_text)
                 }]
                 response = model.query(query_prompt, "Obfuscation Attack")[0]
-                # Only use the first line of the response
-                response = response.split('\n')[0]
+                response = response.split('\n')[0]  # 只使用第一行
                 similarity = self.obfuscator.calculate_similarity(original_text, response)
-                similarities.append(similarity)
                 
-                logger.info(f"Level {level}: {obfuscated_text}")
-                logger.info(f"Model response: \"{response}\"")
-                logger.info(f"Similarity: {similarity}")
+                # 记录level的详细信息
+                self.logger.add("sample_id", main_row, "level_details", level_row)
+                self.logger.add("level", level, "level_details", level_row)
+                self.logger.add("obfuscated_text", obfuscated_text, "level_details", level_row)
+                self.logger.add("response", response, "level_details", level_row)
+                self.logger.add("similarity", similarity, "level_details", level_row)
+                
+                similarities.append(similarity)
 
-            # 使用最大相似度作为最终得分
+            # 计算并记录最终结果
             mean_similarity = sum(similarities) / len(similarities)
-            pred_member = mean_similarity >= self.threshold
-            self.results.append((pred_member, is_member))
-            self.scores.append(mean_similarity)
             
-            logger.info(f"Mean similarity: {mean_similarity}")
-            logger.info(f"Is member: {is_member}, Predicted member: {pred_member}")
-            logger.info("-" * 50)
+            self.logger.add("mean_similarity", mean_similarity, "attack_results", main_row)
 
-        # 在所有样本处理完后，找到最佳阈值
+        # 找到最佳阈值并更新结果
         best_threshold = self.find_optimal_threshold()
-
-        # 使用最佳阈值重新评估结果
-        self.results = [(score >= best_threshold, is_member) for score, (_, is_member) in zip(self.scores, self.results)]
-
+        
+        # 更新预测结果
+        attack_results = self.logger.get_table("attack_results")
+        attack_results["final_prediction"] = attack_results["mean_similarity"] >= best_threshold
+        
     def find_optimal_threshold(self):
-        # 将结果转换为numpy数组
-        scores = np.array(self.scores)
-        true_labels = np.array([is_member for _, is_member in self.results])
+        # 从logger获取数据
+        attack_results = self.logger.get_table("attack_results")
+        scores = attack_results["mean_similarity"].tolist()
+        true_labels = attack_results["Membership"].tolist()
 
         # 计算ROC曲线
         fpr, tpr, thresholds = roc_curve(true_labels, scores)
@@ -900,7 +908,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         plt.ylabel('True Positive Rate')
         plt.title('Receiver Operating Characteristic (ROC) Curve')
         plt.legend(loc="lower right")
-        plt.savefig(self.fm.get_image_path('obfuscation_roc_curve.png'))
+        plt.savefig('obfuscation_roc_curve.png')
         plt.close()
 
         # 找到最佳F1分数对应的阈值
@@ -912,33 +920,42 @@ class ObfuscationAttack(ICLAttackStrategy):
         # 计算准确率
         accuracy = np.mean((scores >= best_threshold) == true_labels)
 
-        logger.info(f"Best threshold: {best_threshold}")
-        logger.info(f"Best F1 score: {best_f1}")
-        logger.info(f"Accuracy at best threshold: {accuracy}")
+        # 记录阈值相关的指标
+        self.logger.new_table("metrics")
+        metrics_row = self.logger.new_row("metrics")
+        self.logger.add("best_threshold", best_threshold)
+        self.logger.add("best_f1", best_f1)
+        self.logger.add("accuracy", accuracy)
 
         return best_threshold
 
     def evaluate(self):
-        predictions = [pred for pred, _ in self.results]
-        ground_truth = [truth for _, truth in self.results]
+        # 从logger获取最终结果
+        attack_results = self.logger.get_table("attack_results")
+        predictions = attack_results["final_prediction"].tolist()
+        ground_truth = attack_results["Membership"].tolist()
+        scores = attack_results["mean_similarity"].tolist()
         
         metrics = EvaluationMetrics.calculate_advantage(predictions, ground_truth)
         
         # 计算ROC AUC
-        fpr, tpr, _ = EvaluationMetrics.calculate_roc_auc(ground_truth, self.scores)
+        fpr, tpr, _ = EvaluationMetrics.calculate_roc_auc(ground_truth, scores)
         metrics['auc'] = auc(fpr, tpr)
 
         # 计算对数ROC AUC
-        log_fpr, log_tpr, log_auc = EvaluationMetrics.calculate_log_roc_auc(ground_truth, self.scores)
+        log_fpr, log_tpr, log_auc = EvaluationMetrics.calculate_log_roc_auc(ground_truth, scores)
         metrics['log_auc'] = log_auc
 
         if self.attack_config.get('plot_roc', False):
             EvaluationMetrics.plot_roc(fpr, tpr, metrics['auc'], 'obfuscation_roc_curve.png')
             EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, 'obfuscation_log_roc_curve.png')
 
-        self.fm.save_json('evaluation.json', metrics)
-        self.fm.save_json('results.json', self.results)
-        self.fm.save_json('scores.json', self.scores)
+        # 保存metrics
+        for key, value in metrics.items():
+            self.logger.add(key, value, "metrics")
+
+        # 保存所有结果
+        self.logger.save()
         return metrics
 
 def load_yaml_config(config_path: str) -> Dict[str, Any]:
@@ -955,22 +972,23 @@ def main(data_config, attack_config, query_config):
         attack_strategy.attack(model)
     except KeyboardInterrupt:
         pass
-    results = attack_strategy.evaluate()
-    print(f"Attack results for {attack_config['name']}: {results}")
+    attack_strategy.evaluate()
 
 if __name__ == "__main__":
     # Keep the original command-line argument parsing for backward compatibility
     load_dotenv()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data', help='Path to the data config file', default="data.yaml")
+    parser.add_argument('--data', help='Path to the data config file', default="data/trec.yaml")
     parser.add_argument('--attack', help='Path to the attack config file', default="attack_chat.yaml")
     parser.add_argument('--query', help='Path to the query config file', default="query.yaml")
     parser.add_argument("--log-level", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         default='INFO', help="Set the logging level")
+    parser.add_argument("--output", help="Output directory for all results", default=None)
     args = parser.parse_args()
 
     data_config = load_yaml_config(args.data)
     attack_config = load_yaml_config(args.attack)
     query_config = load_yaml_config(args.query)
-    main(data_config, attack_config, query_config)
+    with output_directory(args.output):
+        main(data_config, attack_config, query_config)
