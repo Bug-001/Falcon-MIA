@@ -59,18 +59,13 @@ class ExperimentRunner:
         
     def _generate_experiment_name(self, param_values: Dict[str, Dict[str, Any]]) -> str:
         """生成实验名称"""
-        # 基础名称：前缀+时间戳
-        timestamp = datetime.now().strftime("%Y%m%d%H%M")
         name_parts = []
-        
         # 添加参数值
         for template_name, params in param_values.items():
             for param_name, value in params.items():
                 # Sanitize the value to avoid special characters
                 value = str(value).replace("/", "_")
                 name_parts.append(f"{param_name}({value})")
-        
-        name_parts.append(timestamp)
         return self.config['name_prefix'] + "/" + "--".join(name_parts)
         
     def _is_valid_combination(self, params: Dict[str, Dict[str, Any]]) -> bool:
@@ -152,21 +147,12 @@ class ExperimentRunner:
 
     def _need_rerun(self, exp_name: str) -> bool:
         """判断实验是否需要重新运行"""
-        exp_dir = Path(exp_name)
+        exp_dir = Path(os.path.join("output", exp_name))
         
         # 如果实验目录不存在，需要运行
         if not exp_dir.exists():
             return True
-            
-        # 从实验名称中获取时间戳
-        exp_time = self._get_timestamp_from_name(exp_name)
-        code_time = datetime.fromtimestamp(self.last_modified_time)
-        
-        # 如果实验时间早于程序更新时间，需要重新运行，并返回新的实验名称
-        if exp_time.timestamp() < self.last_modified_time:
-            print(f"Experiment {exp_name} is outdated (exp_time: {exp_time}, code_time: {code_time})")
-            return True
-            
+
         print(f"Skipping experiment {exp_name} (already exists and up-to-date)")
         return False
         

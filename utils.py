@@ -13,6 +13,7 @@ from datetime import datetime
 from colorama import Fore, Style
 
 # Global output directory
+output_dir = "output"
 _cwd_stack = []
 
 @contextmanager
@@ -30,7 +31,7 @@ def output_directory(path: str = None):
         path = "unnamed_experiment"
     
     # Convert to absolute path and ensure it exists
-    temp_dir = os.path.abspath(os.path.join("output", path))
+    temp_dir = os.path.abspath(os.path.join(output_dir, path))
     os.makedirs(temp_dir, exist_ok=True)
     _cwd_stack.append(os.getcwd())
     os.chdir(temp_dir)

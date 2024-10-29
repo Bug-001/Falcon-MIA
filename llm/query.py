@@ -7,6 +7,8 @@ from openai import OpenAI
 from colorama import Fore, init
 from abc import ABC, abstractmethod
 import logging
+import openai
+import time
 
 from .tools.utils import get_logger
 
@@ -79,15 +81,19 @@ class AIMLClient(ModelClient):
         self.client = OpenAI(api_key=api_key, base_url="https://api.aimlapi.com/v1")
 
     def chat_completion(self, messages, **kwargs):
-        try:
-            completion = self.client.chat.completions.create(
-                messages=messages,
-                **kwargs
-            )
-            return completion.choices[0].message.content
-        except Exception as e:
-            logger.warning(f"Error during AI/ML API request: {e}")
-            return None
+        while True:
+            try:
+                completion = self.client.chat.completions.create(
+                    messages=messages,
+                    **kwargs
+                )
+                return completion.choices[0].message.content
+            except openai.InternalServerError as e:
+                time.sleep(5)
+            except Exception as e:
+                logger.warning(f"Error during AI/ML API request: {type(e)}")
+                raise e
+                return None
 
 class QueryProcessor:
     def __init__(self, query, full_output=False):
@@ -116,12 +122,15 @@ class QueryProcessor:
             raise ValueError(f"Unknown model_type: {model_type}")
 
     def process_query(self):
-        if self.query['query_type'] == 'chat':
-            return self.process_chats()
-        elif self.query['query_type'] == 'instruction':
-            return self.process_instruction()
-        else:
-            raise ValueError(f"Unsupported query type: {self.query['query_type']}")
+        ret = None
+        while ret == None:
+            if self.query['query_type'] == 'chat':
+                ret = self.process_chats()
+            elif self.query['query_type'] == 'instruction':
+                ret = self.process_instruction()
+            else:
+                raise ValueError(f"Unsupported query type: {self.query['query_type']}")
+        return ret
 
     def _get_stop_pattern(self, model_name):
         # 根据模型名称设置默认的stop pattern

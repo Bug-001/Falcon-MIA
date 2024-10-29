@@ -849,6 +849,7 @@ class ObfuscationAttack(ICLAttackStrategy):
             original_label = attack_sample["output"]
 
             # 记录并打印基本信息
+            self.logger.add("sample_id", main_row)
             self.logger.add("Original", original_text)
             self.logger.add("Membership", is_member)
             self.logger.add("Label", original_label)
