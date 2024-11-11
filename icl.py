@@ -27,6 +27,7 @@ import torch.optim as optim
 from llm.tools.utils import get_logger
 from llm.query import QueryProcessor
 from utils import save_json, output_directory, ExperimentLogger
+from data import load_dataset_and_config
 
 logger = get_logger("ICL Attack", "info")
 init()
@@ -180,37 +181,34 @@ class ICLAttackStrategy(ABC):
         self.random_seed = attack_config.get('random_seed', random.randint(0, 1000000))
         random.seed(self.random_seed)
         self.results = []
-        self.label_translation = {}
         self.logger = ExperimentLogger()
 
     def prepare(self, data_config: Dict[str, Any], data_loader: ICLDataLoader = None):
-        self.data_config = data_config
-        self.dataset = load_dataset(data_config['name'], name=data_config.get('config', None))
-        self.input_field = data_config['input_field']
-        self.output_field = data_config['output_field']
-        self.label_translation = data_config.get('label_translation', {})
+        dataset_name = data_config["dataset"]
+        task = data_config.get("task", "default")
         
-        batch_size = data_config.get('num_demonstrations', 1)
-        num_attacks = self.attack_config.get('num_attacks', 100)
-        selected_attack_sample = data_config.get('selected_attack_sample', 0)
+        # 加载数据集和其默认配置
+        dataset, default_config = load_dataset_and_config(dataset_name, task)
+        
+        # 合并默认配置和用户配置
+        self.data_config = {
+            **default_config,
+            **data_config
+        }
         if data_loader:
             self.data_loader = data_loader
         else:
-            self.data_loader = ICLDataLoader(self.dataset,
-                                             batch_size=batch_size,
-                                             batch_num=num_attacks,
-                                             seed=self.random_seed,
-                                             selected_attack_sample=selected_attack_sample)
+            self.data_loader = ICLDataLoader(
+                dataset=dataset,
+                batch_size=self.data_config["num_demonstrations"],
+                batch_num=self.attack_config.get('num_attacks', 100),
+                seed=self.random_seed,
+                selected_attack_sample=self.attack_config.get('selected_attack_sample', 0)
+            )
 
-        demo_template = self.get_demo_template()
-        self.user_prompt = demo_template[0]['content']
-        self.assistant_prompt = demo_template[1]['content']
-
-    def translate_label(self, label):
-        return self.label_translation.get(label, label)
-
-    def get_demo_template(self):
-        return self.data_config['icl_prompt']['demonstration_template']
+        self.label_translation = self.data_config.get('label_map', {})
+        self.user_prompt = self.data_config['prompt_template']['user']
+        self.assistant_prompt = self.data_config['prompt_template']['assistant']
     
     def remove_punctuation(self, word: str):
         return word.strip(string.punctuation)
@@ -232,23 +230,22 @@ class ICLAttackStrategy(ABC):
         return ret
 
     def generate_icl_prompt(self, icl_samples: Dataset):
-        prompt = self.data_config['icl_prompt']['initial_conversation'].copy()
-        demonstration_template = self.data_config['icl_prompt']['demonstration_template']
+        prompt = [{
+            "role": "system",
+            "content": self.data_config['prompt_template']['system']
+        }]
 
         for sample in icl_samples:
-            for item in demonstration_template:
-                prompt.append({
-                    "role": item['role'],
-                    "content": item['content'].format(input=sample[self.input_field], output=self.translate_label(sample[self.output_field]))
-                })
+            prompt.append({
+                "role": "user",
+                "content": self.user_prompt.format(input=sample["input"])
+            })
+            prompt.append({
+                "role": "assistant",
+                "content": self.assistant_prompt.format(output=sample["output"])
+            })
 
         return prompt
-
-    def get_attack_sample(self, attack_sample: Dict):
-        return {
-            "input": attack_sample[self.input_field],
-            "output": self.translate_label(attack_sample[self.output_field])
-        }
 
     def get_results_filename(self):
         return f"{self.__class__.__name__}_results.json"
@@ -336,11 +333,10 @@ class GAPAttack(ICLAttackStrategy):
     def attack(self, model: 'ModelInterface'):
         for icl_samples, attack_sample, is_member in tqdm(self.data_loader):
             icl_prompt = self.generate_icl_prompt(icl_samples)
-            attack_sample = self.get_attack_sample(attack_sample)
 
             final_prompt = icl_prompt + [{
                 "role": "user",
-                "content": self.get_demo_template()[0]['content'].format(input=attack_sample["input"])
+                "content": self.user_prompt.format(input=attack_sample["input"])
             }]
             response = model.query(final_prompt, "Question Classification")[0]
             pred_member = self.is_member_by_response(response, str(attack_sample["output"]))
@@ -398,7 +394,6 @@ class InquiryAttack(ICLAttackStrategy):
     def attack(self, model):
         for icl_samples, attack_sample, is_member in tqdm(self.data_loader):
             icl_prompt = self.generate_icl_prompt(icl_samples)
-            attack_sample = self.get_attack_sample(attack_sample)
             
             final_prompt = icl_prompt + [{
                 "role": "user",
@@ -472,7 +467,6 @@ class RepeatAttack(ICLAttackStrategy):
     def attack(self, model):
         for icl_samples, attack_sample, is_member in tqdm(self.data_loader):
             icl_prompt = self.generate_icl_prompt(icl_samples)
-            attack_sample = self.get_attack_sample(attack_sample)
             
             # Take num_words as the half length of the sentence if num_words is 0
             num_words = self.num_words if self.num_words > 0 else (len(attack_sample["input"]) // 2)
@@ -600,7 +594,6 @@ class BrainwashAttack(ICLAttackStrategy):
     def attack(self, model: ModelInterface):
         for icl_samples, attack_sample, is_member in tqdm(self.data_loader):
             icl_prompt = self.generate_icl_prompt(icl_samples)
-            attack_sample = self.get_attack_sample(attack_sample)
             
             correct_label = attack_sample["output"]
             wrong_labels = [label for label in self.label_translation.values() if label != correct_label]
@@ -843,7 +836,6 @@ class ObfuscationAttack(ICLAttackStrategy):
             main_row = self.logger.new_row("attack_results")
             
             icl_prompt = self.generate_icl_prompt(icl_samples)
-            attack_sample = self.get_attack_sample(attack_sample)
             
             original_text = attack_sample["input"]
             original_label = attack_sample["output"]
@@ -865,7 +857,7 @@ class ObfuscationAttack(ICLAttackStrategy):
                     "content": self.attack_template.format(input=obfuscated_text)
                 }]
                 response = model.query(query_prompt, "Obfuscation Attack")[0]
-                response = response.split('\n')[0]  # 只使用第一行
+                # response = response.split('\n')[0]  # 只使用第一行
                 similarity = self.obfuscator.calculate_similarity(original_text, response)
                 
                 # 记录level的详细信息
@@ -980,7 +972,7 @@ if __name__ == "__main__":
     load_dotenv()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data', help='Path to the data config file', default="data/trec.yaml")
+    parser.add_argument('--data', help='Path to the data config file', default="data.yaml")
     parser.add_argument('--attack', help='Path to the attack config file', default="attack_chat.yaml")
     parser.add_argument('--query', help='Path to the query config file', default="query.yaml")
     parser.add_argument("--log-level", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],

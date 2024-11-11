@@ -54,6 +54,8 @@ def main():
 
     # 选择合适的chat template
     chat_template = select_chat_template(model_name)
+    # if chat_template.endswith('mistral.jinja'):
+    #     vllm_command.extend(["--tokenizer_mode", "mistral"])
     vllm_command.extend(["--chat-template", chat_template])
 
     print("Executing command:", " ".join(vllm_command))

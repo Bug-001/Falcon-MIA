@@ -7,6 +7,7 @@ nltk==3.9.1
 numpy==2.1.2
 openai==1.52.2
 pandas==2.0.3
+paramiko==3.5.0
 peft==0.6.0
 python-dotenv==1.0.1
 PyYAML==6.0.1
@@ -23,3 +24,4 @@ tqdm==4.66.1
 transformers==4.45.1
 trl==0.7.1
 typing_extensions==4.12.2
+vllm==0.6.3.post1

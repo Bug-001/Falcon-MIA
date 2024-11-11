@@ -18,15 +18,14 @@ from utils import output_directory
 class ExperimentTask:
     """实验任务类"""
     exp_name: str
-    params: Dict
+    params: List[Dict]
     group_key: Tuple  # 用于标识实验所属组
     dependencies: Set[Tuple]  # 依赖的组
 
 class ExperimentRunner:
-    def __init__(self, params_file: str = 'params.yaml'):
+    def __init__(self, params_config: Dict[str, Any]):
         """初始化实验运行器"""
-        with open(params_file, 'r') as f:
-            self.config = yaml.safe_load(f)
+        self.config = params_config
         
         # 加载主函数
         self.main_func = self._load_main_function()
@@ -50,18 +49,19 @@ class ExperimentRunner:
             
     def _load_templates(self) -> Dict[str, Dict]:
         """加载所有yaml模板"""
-        templates = {}
-        for template_name in self.config['params'].keys():
-            template_path = f"{template_name}.yaml"
+        templates = []
+        for param_config in self.config['params']:
+            template_path = param_config['param']
             with open(template_path, 'r') as f:
-                templates[template_name] = yaml.safe_load(f)
+                template_data = yaml.safe_load(f)
+                templates.append(template_data)
         return templates
         
     def _generate_experiment_name(self, param_values: Dict[str, Dict[str, Any]]) -> str:
         """生成实验名称"""
         name_parts = []
         # 添加参数值
-        for template_name, params in param_values.items():
+        for params in param_values:
             for param_name, value in params.items():
                 # Sanitize the value to avoid special characters
                 value = str(value).replace("/", "_")
@@ -88,32 +88,31 @@ class ExperimentRunner:
         
     def _generate_param_combinations(self):
         """生成所有有效的参数组合"""
-        # 为每个模板生成参数组合
-        template_params = {}
-        for template_name, param_specs in self.config['params'].items():
-            if param_specs is None:
+        all_param_combinations = []
+        
+        # 为每个参数配置生成组合
+        for param_config in self.config['params']:
+            param_specs = param_config.get('config', {})
+            if not param_specs:
+                all_param_combinations.append([{}])
                 continue
-
-            params = []
+                
             param_names = []
             param_values = []
-            
             for name, values in param_specs.items():
                 param_names.append(name)
                 param_values.append(values)
                 
+            combinations = []
             for value_combo in itertools.product(*param_values):
                 param_dict = dict(zip(param_names, value_combo))
-                params.append(param_dict)
-                
-            template_params[template_name] = params
+                combinations.append(param_dict)
+            all_param_combinations.append(combinations)
             
-        # 生成所有模板的参数组合
-        template_names = list(template_params.keys())
-        for param_combo in itertools.product(*[template_params[name] for name in template_names]):
-            param_dict = dict(zip(template_names, param_combo))
-            if self._is_valid_combination(param_dict):
-                yield param_dict
+        # 生成所有参数的笛卡尔积
+        for param_combo in itertools.product(*all_param_combinations):
+            if self._is_valid_combination(list(param_combo)):
+                yield list(param_combo)
                 
     def _get_program_last_modified_time(self) -> float:
         """获取程序文件的最后修改时间"""
@@ -196,13 +195,16 @@ class ExperimentRunner:
             # 准备每个模板的参数
             current_params = copy.deepcopy(self.templates)
 
-            for template_name, params in param_combo.items():
-                for param_name, value in params.items():
-                    current_params[template_name][param_name] = value
-            
+            # 准备参数
+            current_params = []
+            for template, params in zip(self.templates, param_combo):
+                template_copy = copy.deepcopy(template)
+                template_copy.update(params)
+                current_params.append(template_copy)
+
             # 运行实验
             with output_directory(exp_name):
-                self.main_func(*current_params.values())
+                self.main_func(*current_params)
             print(f"Experiment {exp_name} completed successfully")
 
 class ParallelExperimentRunner(ExperimentRunner):
@@ -336,13 +338,14 @@ class ParallelExperimentRunner(ExperimentRunner):
                     completed_groups.add(group_key)
                     del tasks_by_group[group_key]
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--params', default='params.yaml', help='Path to parameters config file')
-    args = parser.parse_args()
-    
-    runner = ParallelExperimentRunner(args.params)
+def main(params):    
+    runner = ParallelExperimentRunner(params)
     runner.run()
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--params', default='params.yaml', help='Path to parameters config file')
+    args = parser.parse_args()
+    with open(args.params, 'r') as f:
+        params = yaml.safe_load(f)
+    main(params)
