@@ -97,23 +97,46 @@ class ExperimentRunner:
                 all_param_combinations.append([{}])
                 continue
                 
-            param_names = []
-            param_values = []
-            for name, values in param_specs.items():
-                param_names.append(name)
-                param_values.append(values)
-                
-            combinations = []
-            for value_combo in itertools.product(*param_values):
-                param_dict = dict(zip(param_names, value_combo))
-                combinations.append(param_dict)
+            combinations = self._process_param_dict(param_specs)
             all_param_combinations.append(combinations)
-            
-        # 生成所有参数的笛卡尔积
+        
+        # 将不同文件的参数直接组合起来
         for param_combo in itertools.product(*all_param_combinations):
             if self._is_valid_combination(list(param_combo)):
                 yield list(param_combo)
+    
+    def _process_param_dict(self, param_dict):
+        """递归处理参数字典，生成所有可能的组合"""
+        all_choices = []
+        
+        for param_name, param_values in param_dict.items():
+            cur_choices = []
+
+            # param_values is a list, in which every elem can be the value, or a value with dependent param dict
+            for value_spec in param_values:
+                # 如果是普通元素
+                if not isinstance(value_spec, dict):
+                    cur_choices.append({param_name: value_spec})
+
+                # 如果是带依赖的配置列表
+                else:
+                    value = value_spec['value']
+                    dep = value_spec['dependency']
+                    dep_combinations = self._process_param_dict(dep)
+                    for dep_combo in dep_combinations:
+                        dep_combo[param_name] = value
+                        cur_choices.append(dep_combo)
                 
+            all_choices.append(cur_choices)
+        
+        ret = []
+        for param_dicts in itertools.product(*all_choices):
+            cur_dict = dict()
+            for param_dict in param_dicts:
+                cur_dict = cur_dict | param_dict
+            ret.append(cur_dict)
+        return ret
+    
     def _get_program_last_modified_time(self) -> float:
         """获取程序文件的最后修改时间"""
         module_name = self.config['program']['module']
