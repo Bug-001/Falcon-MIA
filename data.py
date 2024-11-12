@@ -1,6 +1,10 @@
 from typing import Dict, Tuple, Any, List
-from datasets import load_dataset, Dataset
+from datasets import load_dataset, Dataset, DatasetDict
 from abc import ABC, abstractmethod
+from pathlib import Path
+import requests
+from tqdm import tqdm
+import xml.etree.ElementTree as ET
 import os
 
 class BaseDataLoader(ABC):
@@ -20,86 +24,6 @@ class BaseDataLoader(ABC):
     def get_supported_tasks(self) -> List[str]:
         """返回该数据集支持的所有任务列表"""
         pass
-
-class SQuADLoader(BaseDataLoader):
-    def get_supported_tasks(self) -> List[str]:
-        return ["qa", "verification", "generation"]
-    
-    def _load_qa(self, dataset: Dataset):
-        def process_qa(example):
-            return {
-                "input": f"Context: {example['context']}\nQuestion: {example['question']}",
-                "output": example['answers']['text'][0]
-            }
-        
-        processed_dataset = dataset.map(process_qa)
-        config = {
-            "dataset_name": "squad",
-            "task": task,
-            "task_type": "extractive_qa",
-            "metrics": ["exact_match", "f1"],
-            "prompt_template": {
-                "system": "Answer the question based on the given context.",
-                "user": "{input}",
-                "assistant": "Answer: {output}"
-            }
-        }
-        return processed_dataset, config
-    
-    def _load_verification(self, dataset: Dataset):
-        def process_verification(example):
-            return {
-                "input": f"Question: {example['question']}\nProposed Answer: {example['answers']['text'][0]}\nContext: {example['context']}",
-                "output": "correct"  # 简化处理
-            }
-        
-        processed_dataset = dataset.map(process_verification)
-        config = {
-            "dataset_name": "squad",
-            "task": task,
-            "task_type": "classification",
-            "metrics": ["accuracy"],
-            "prompt_template": {
-                "system": "Verify if the proposed answer is correct based on the context.",
-                "user": "{input}",
-                "assistant": "The answer is {output}"
-            }
-        }
-        return processed_dataset, config
-    
-    def _load_generation(self, dataset: Dataset):
-        def process_generation(example):
-            return {
-                "input": example['context'],
-                "output": example['question']
-            }
-        
-        processed_dataset = dataset.map(process_generation)
-        config = {
-            "dataset_name": "squad",
-            "task": task,
-            "task_type": "text_generation",
-            "metrics": ["bleu", "rouge"],
-            "prompt_template": {
-                "system": "Generate a question based on the given context.",
-                "user": "Context: {input}",
-                "assistant": "Question: {output}"
-            }
-        }
-        return processed_dataset, config
-
-    def load(self, task: str = "default") -> Tuple[Dataset, Dict[str, Any]]:
-        if task not in self.get_supported_tasks():
-            raise ValueError(f"Task {task} not supported. Available tasks: {self.get_supported_tasks()}")
-        
-        dataset = load_dataset("squad")
-        
-        if task == "qa":
-            return self._load_qa(dataset)
-        elif task == "verification":
-            return self._load_verification(dataset)
-        elif task == "generation":
-            return self._load_generation(dataset)
 
 class GPQALoader(BaseDataLoader):
     """单任务数据集"""
@@ -548,14 +472,218 @@ class PubMedQALoader(BaseDataLoader):
         
         return processed_dataset, config
 
+class CCELoader(BaseDataLoader):
+    """用于加载和处理CCE(Common Configuration Enumeration)安全配置数据集的加载器"""
+    
+    def get_supported_tasks(self) -> List[str]:
+        return [
+            "classification",  # 配置类型分类
+            "requirement_extraction",  # 提取配置要求
+            "reference_prediction",  # 预测相关安全标准引用
+            "platform_detection"  # 检测适用平台
+        ]
+    
+    def _parse_xml_data(self, xml_file: str) -> List[Dict]:
+        """解析CCE XML文件并提取相关信息"""
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        
+        # 处理命名空间
+        namespaces = {
+            'cce': 'http://cce.mitre.org',
+            'dc': 'http://purl.org/dc/terms/'
+        }
+        
+        entries = []
+        for cce in root.findall('.//cce:cce', namespaces):
+            entry = {
+                'cce_id': cce.get('cce_id', ''),
+                'platform': cce.get('platform', ''),
+                'modified': cce.get('modified', ''),
+                'description': cce.find('.//cce:description', namespaces).text if cce.find('.//cce:description', namespaces) is not None else '',
+                'technical_mechanisms': [mech.text for mech in cce.findall('.//cce:technical_mechanism', namespaces)],
+                'parameters': [param.text for param in cce.findall('.//cce:parameter', namespaces)],
+                'references': [{'id': ref.get('resource_id', ''), 'text': ref.text} for ref in cce.findall('.//cce:reference', namespaces)]
+            }
+            entries.append(entry)
+        
+        return entries
+    
+    def _process_for_classification(self, example):
+        """处理配置类型分类任务的数据"""
+        # 基于technical_mechanisms和description判断配置类型
+        config_types = {
+            'filesystem': ['fstab', 'filesystem', 'mount'],
+            'registry': ['registry', 'HKEY_LOCAL_MACHINE', 'regedit'],
+            'permissions': ['permissions', 'dacl', 'acl'],
+            'network': ['network', 'firewall', 'tcp'],
+            'authentication': ['password', 'login', 'auth']
+        }
+        
+        text = f"{example['description']} {' '.join(example['technical_mechanisms'])}"
+        config_type = 'other'
+        for type_name, keywords in config_types.items():
+            if any(keyword.lower() in text.lower() for keyword in keywords):
+                config_type = type_name
+                break
+        
+        return {
+            "input": example['description'],
+            "output": config_type,
+            "metadata": {
+                "cce_id": example['cce_id'],
+                "platform": example['platform']
+            }
+        }
+    
+    def _process_for_requirement_extraction(self, example):
+        """处理配置要求提取任务的数据"""
+        return {
+            "input": example['description'],
+            "output": {
+                "technical_mechanisms": example['technical_mechanisms'],
+                "parameters": example['parameters']
+            },
+            "metadata": {
+                "cce_id": example['cce_id'],
+                "platform": example['platform']
+            }
+        }
+    
+    def _process_for_reference_prediction(self, example):
+        """处理安全标准引用预测任务的数据"""
+        references = [ref['text'] for ref in example['references']]
+        return {
+            "input": f"{example['description']}\n{' '.join(example['technical_mechanisms'])}",
+            "output": references,
+            "metadata": {
+                "cce_id": example['cce_id'],
+                "reference_ids": [ref['id'] for ref in example['references']]
+            }
+        }
+    
+    def _process_for_platform_detection(self, example):
+        """处理平台检测任务的数据"""
+        return {
+            "input": f"{example['description']}\n{' '.join(example['technical_mechanisms'])}",
+            "output": example['platform'],
+            "metadata": {
+                "cce_id": example['cce_id'],
+                "modified_date": example['modified']
+            }
+        }
+    
+    def load(self, task: str = "classification", data_dir: str = Path.home()/".cache/better-mia/data", data_name: str = "cce-COMBINED-5.20130214.xml") -> Tuple[Dataset, Dict[str, Any]]:
+        """
+        加载并处理CCE数据集
+        
+        Args:
+            task: 任务类型，支持 "classification"/"requirement_extraction"/"reference_prediction"/"platform_detection"
+            data_path: CCE XML数据文件路径
+            
+        Returns:
+            处理后的数据集和配置信息
+        """
+        if task not in self.get_supported_tasks():
+            raise ValueError(f"Task {task} not supported. Available tasks: {self.get_supported_tasks()}")
+        
+        # 解析XML数据
+        data_path = os.path.join(data_dir, data_name)
+        try:
+            raw_data = self._parse_xml_data(data_path)
+        except FileNotFoundError:
+            os.makedirs(data_dir, exist_ok=True)
+            # 发送GET请求，流式传输
+            url = "https://cce.mitre.org/lists/data/downloads/cce-COMBINED-5.20130214.xml"
+            response = requests.get(url, stream=True)
+            response.raise_for_status()  # 确保请求成功
+            
+            # 获取文件大小（如果服务器提供）
+            total_size = int(response.headers.get('content-length', 0))
+            
+            # 打开文件并写入数据
+            with open(data_path, 'wb') as file, tqdm(
+                desc=f'Downloading {data_name}',
+                total=total_size,
+                unit='iB',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as progress_bar:
+                for data in response.iter_content(chunk_size=1024):
+                    size = file.write(data)
+                    progress_bar.update(size)
+            raw_data = self._parse_xml_data(data_path)
+        
+        # 根据任务类型选择处理方法
+        processing_fn = getattr(self, f"_process_for_{task}")
+        
+        # 创建数据集
+        processed_data = [processing_fn(entry) for entry in raw_data]
+        dataset = DatasetDict({
+            "train": Dataset.from_list(processed_data)
+        })
+        
+        # 任务配置
+        task_configs = {
+            "classification": {
+                "task_type": "text_classification",
+                "metrics": ["accuracy", "f1"],
+                "prompt_template": {
+                    "system": "Classify the security configuration type based on the description.",
+                    "user": "Configuration: {input}",
+                    "assistant": "Configuration type: {output}"
+                }
+            },
+            "requirement_extraction": {
+                "task_type": "information_extraction",
+                "metrics": ["precision", "recall", "f1"],
+                "prompt_template": {
+                    "system": "Extract the technical mechanisms and parameters from the security configuration.",
+                    "user": "{input}",
+                    "assistant": "Technical mechanisms: {output[technical_mechanisms]}\nParameters: {output[parameters]}"
+                }
+            },
+            "reference_prediction": {
+                "task_type": "multi_label_classification",
+                "metrics": ["precision", "recall", "f1"],
+                "prompt_template": {
+                    "system": "Predict relevant security standards and guidelines for the configuration.",
+                    "user": "{input}",
+                    "assistant": "Relevant standards: {output}"
+                }
+            },
+            "platform_detection": {
+                "task_type": "single_label_classification",
+                "metrics": ["accuracy"],
+                "prompt_template": {
+                    "system": "Determine the platform this security configuration applies to.",
+                    "user": "{input}",
+                    "assistant": "Platform: {output}"
+                }
+            }
+        }
+        
+        config = {
+            "dataset_name": "cce_security",
+            "task": task,
+            **task_configs[task],
+            "additional_features": {
+                "has_cce_id": True,
+                "has_technical_mechanisms": True,
+                "has_references": True
+            }
+        }
+        
+        return dataset, config
+
 # 数据集加载器注册表
 DATASET_LOADERS = {
-    "squad": SQuADLoader,
     "gpqa": GPQALoader,
     "trec": TRECLoader,
     "agnews": AGNewsLoader,
     "lexglue": LexGlueLoader,
-    "pubmedqa": PubMedQALoader
+    "pubmedqa": PubMedQALoader,
+    "cce": CCELoader,
 }
 
 def get_available_tasks(dataset_name: str) -> List[str]:

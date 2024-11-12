@@ -82,8 +82,6 @@ class ObfuscationTechniques:
         except LookupError:
             nltk.download('stopwords')
             self.stop_words = set(stopwords.words('english'))
-        
-        nltk.download('punkt')
 
     def _initialize_leet_dict(self):
         return {
