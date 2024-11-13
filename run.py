@@ -13,6 +13,7 @@ from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
 from utils import output_directory
+import json
 
 @dataclass
 class ExperimentTask:
@@ -65,7 +66,11 @@ class ExperimentRunner:
             for param_name, value in params.items():
                 # Sanitize the value to avoid special characters
                 value = str(value).replace("/", "_")
+                if param_name == 'model' and value.endswith(".yaml"):
+                    # XXX: If the model name is *.yaml, just ignore it
+                    continue
                 name_parts.append(f"{param_name}({value})")
+
         return self.config['name_prefix'] + "/" + "--".join(name_parts)
         
     def _is_valid_combination(self, params: Dict[str, Dict[str, Any]]) -> bool:
@@ -170,12 +175,20 @@ class ExperimentRunner:
     def _need_rerun(self, exp_name: str) -> bool:
         """判断实验是否需要重新运行"""
         exp_dir = Path(os.path.join("output", exp_name))
-        
-        # 如果实验目录不存在，需要运行
-        if not exp_dir.exists():
+
+        # 检查metrics.json是否为空或损坏
+        metric_file = os.path.join(exp_dir, "metrics.json")
+        try:
+            with open(metric_file, 'r') as f:
+                metrics_data = json.load(f)
+            if not metrics_data:  # 如果文件为空字典
+                print(f"Running experiment {exp_name} (metrics file is empty)")
+                return True
+        except (json.JSONDecodeError, IOError):
+            print(f"Running experiment {exp_name} (metrics file is not available)")
             return True
 
-        print(f"Skipping experiment {exp_name} (already exists and up-to-date)")
+        print(f"Skipping experiment {exp_name} (already completed)")
         return False
         
     def _update_experiment_name(self, old_name: str) -> str:

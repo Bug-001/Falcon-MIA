@@ -10,6 +10,39 @@ import subprocess
 from copy import deepcopy
 from datetime import datetime
 from pathlib import PurePosixPath
+from queue import Queue
+
+class OutputMonitor:
+    def __init__(self, stdout, thread_name="stdout-monitor"):
+        self.stdout = stdout
+        self.thread_name = thread_name
+        self._stop_event = threading.Event()
+        self.queue = Queue()
+        self.monitor_thread = None
+
+    def start_monitoring(self):
+        self.monitor_thread = threading.Thread(
+            target=self._monitor_output,
+            name=self.thread_name,
+            daemon=True
+        )
+        self.monitor_thread.start()
+
+    def stop_monitoring(self):
+        self._stop_event.set()
+        if self.monitor_thread:
+            self.monitor_thread.join()
+
+    def _monitor_output(self):
+        while not self._stop_event.is_set():
+            line = self.stdout.readline()
+            if line:
+                # Put the line in queue and print it
+                self.queue.put(line)
+                sys.stdout.write(f"[{self.thread_name}] {line}")
+                sys.stdout.flush()
+            else:
+                time.sleep(0.1)  # Prevent busy-waiting
 
 class ExperimentThread(threading.Thread):
     def __init__(self, thread_id, model_queue, ssh_host, ssh_user):
@@ -71,6 +104,7 @@ class ExperimentThread(threading.Thread):
         config['host'] = "174.0.241.6"
         config['port'] = 8000 + self.thread_id
         config['tensor-parallel-size'] = num_gpus
+        config['gpu-memory-utilization'] = 0.99
         
         with open(server_file, 'w') as f:
             yaml.dump(config, f)
@@ -189,28 +223,23 @@ class ExperimentThread(threading.Thread):
         Run multiple experiments in parallel using subprocess
         """
         processes = []
-        if len(param_configs) == 1:
-            _, params = param_configs[0]
-            from run import main as run_main
-            run_main(params)
-        else:
-            for param_file, _ in param_configs:
-                # Create command
-                cmd = f"python run.py --params {param_file}"
-                
-                # Start process and redirect output to log file
-                with open(log_file, 'a') as f:
-                    process = subprocess.Popen(
-                        cmd.split(),
-                        stdout=f,
-                        stderr=subprocess.STDOUT,
-                        universal_newlines=True
-                    )
-                    processes.append(process)
+        for param_file, _ in param_configs:
+            # Create command
+            cmd = f"python run.py --params {param_file}"
             
-            # Wait for all processes to complete
-            for process in processes:
-                process.wait()
+            # Start process and redirect output to log file
+            with open(log_file, 'a') as f:
+                process = subprocess.Popen(
+                    cmd.split(),
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True
+                )
+                processes.append(process)
+        
+        # Wait for all processes to complete
+        for process in processes:
+            process.wait()
 
     def get_ssh_client(self):
         ssh_client = paramiko.SSHClient()
@@ -260,8 +289,10 @@ class ExperimentThread(threading.Thread):
                 # Wait for server to be ready
                 if self.wait_for_server_ready(stdout, stderr):
                     print(f"Thread {self.thread_id} - Server is ready!")
-                    
+
                     # Run all parameter configurations in parallel
+                    monitor = OutputMonitor(stderr)
+                    monitor.start_monitoring()
                     self.run_experiments(param_configs, log_file)
                     
                 logger.info("Experiment completed successfully")
@@ -280,6 +311,7 @@ class ExperimentThread(threading.Thread):
                 ssh_client.exec_command("scancel -u sc100085")
                 ssh_client.close()
                 self.model_queue.task_done()
+                monitor.stop_monitoring()
         
         ssh_client.close()
 
@@ -311,7 +343,7 @@ def main():
     
     # Create and start threads (maximum 8)
     threads = []
-    num_threads = min(2, len(models))
+    num_threads = min(4, len(models))
     
     for thread_id in range(num_threads):
         thread = ExperimentThread(
