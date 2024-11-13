@@ -34,23 +34,26 @@ class ExperimentThread(threading.Thread):
         # Deep copy the base config to avoid modifying the original
         param_config = deepcopy(base_param_config)
         
-        # Get the parameters that need to be parallelized
-        parallel_params = param_config['params'][0]['config']['dataset']
-        
         # Create individual configs for each parameter value
-        for i, param_value in enumerate(parallel_params):
-            new_config = deepcopy(param_config)
-            new_config['params'][0]['config']['dataset'] = [param_value]  # Single value in list
+        # parallel_params = param_config['params'][0]['config']['dataset']
+        # for i, param_value in enumerate(parallel_params):
+        #     new_config = deepcopy(param_config)
+        #     new_config['params'][0]['config']['dataset'] = [param_value]  # Single value in list
             
-            # Create parameter file name based on the value
-            param_value_safe = param_value.replace('/', '-').replace(' ', '_')
-            param_file = f"output/param-config/param-{self.thread_id}-{param_value_safe}.yaml"
+        #     # Create parameter file name based on the value
+        #     param_file = f"output/param-config/param-{self.thread_id}-{param_value['value']}.yaml"
             
-            # Save the configuration
-            with open(param_file, 'w') as f:
-                yaml.dump(new_config, f)
+        #     # Save the configuration
+        #     with open(param_file, 'w') as f:
+        #         yaml.dump(new_config, f)
             
-            configs.append((param_file, new_config))
+        #     configs.append((param_file, new_config))
+
+        # XXX: No-parallel
+        param_file = f"output/param-config/param-{self.thread_id}.yaml"
+        configs.append((param_file, param_config))
+        with open(param_file, 'w') as f:
+            yaml.dump(param_config, f)
         
         return configs
 
@@ -130,7 +133,7 @@ class ExperimentThread(threading.Thread):
         finally:
             sftp.close()
     
-    def wait_for_server_ready(self, stdout, stderr, target_string="Uvicorn running on socket", timeout_minutes=5):
+    def wait_for_server_ready(self, stdout, stderr, target_string="Uvicorn running on socket", timeout_minutes=600):
             # Set timeout for the channel
             start_time = time.time()
             timeout = timeout_minutes * 60  # convert to seconds
@@ -140,7 +143,7 @@ class ExperimentThread(threading.Thread):
                 try:
                     line = stdout.readline().strip()
                     if line:
-                        # print(f"Thread {self.thread_id} - Server output: {line}")
+                        print(f"Thread {self.thread_id} - Server output: {line}")
                         if target_string in line:
                             return True
                 except IOError:
@@ -186,23 +189,28 @@ class ExperimentThread(threading.Thread):
         Run multiple experiments in parallel using subprocess
         """
         processes = []
-        for param_file, _ in param_configs:
-            # Create command
-            cmd = f"python run.py --params {param_file}"
+        if len(param_configs) == 1:
+            _, params = param_configs[0]
+            from run import main as run_main
+            run_main(params)
+        else:
+            for param_file, _ in param_configs:
+                # Create command
+                cmd = f"python run.py --params {param_file}"
+                
+                # Start process and redirect output to log file
+                with open(log_file, 'a') as f:
+                    process = subprocess.Popen(
+                        cmd.split(),
+                        stdout=f,
+                        stderr=subprocess.STDOUT,
+                        universal_newlines=True
+                    )
+                    processes.append(process)
             
-            # Start process and redirect output to log file
-            with open(log_file, 'a') as f:
-                process = subprocess.Popen(
-                    cmd.split(),
-                    stdout=f,
-                    stderr=subprocess.STDOUT,
-                    universal_newlines=True
-                )
-                processes.append(process)
-        
-        # Wait for all processes to complete
-        for process in processes:
-            process.wait()
+            # Wait for all processes to complete
+            for process in processes:
+                process.wait()
 
     def get_ssh_client(self):
         ssh_client = paramiko.SSHClient()
@@ -246,6 +254,9 @@ class ExperimentThread(threading.Thread):
                 command = f"cd online1/remote/better-MIA && srun -p q_amd_gpu_nvidia_1 --gres=gpu:{num_gpus} python llm/server.py -c output/server-config/server-{self.thread_id}.yaml"
                 _, stdout, stderr = ssh_client.exec_command(command)
                 
+                # XXX
+                # self.run_experiments(param_configs, log_file)
+
                 # Wait for server to be ready
                 if self.wait_for_server_ready(stdout, stderr):
                     print(f"Thread {self.thread_id} - Server is ready!")
@@ -277,13 +288,13 @@ def main():
     # - just the model name (string) for single GPU usage
     # - a tuple of (model_name, num_gpus) for multi-GPU usage
     models = [
-        ("mistralai/Mistral-7B-Instruct-v0.2", 2),      # Uses 1 GPU by default
-        "meta-llama/Meta-Llama-3-8B-Instruct",
+        "meta-llama/Meta-Llama-3-8B-Instruct", # Uses 1 GPU by default
         "Qwen/Qwen2.5-0.5B-Instruct",
         "Qwen/Qwen2.5-1.5B-Instruct",
         "Qwen/Qwen2.5-3B-Instruct",
         "Qwen/Qwen2.5-7B-Instruct",
         ("Qwen/Qwen2.5-14B-Instruct", 2),
+        ("mistralai/Mistral-7B-Instruct-v0.2", 2),
         # Add more models as needed
     ]
     
@@ -300,7 +311,7 @@ def main():
     
     # Create and start threads (maximum 8)
     threads = []
-    num_threads = min(1, len(models))
+    num_threads = min(2, len(models))
     
     for thread_id in range(num_threads):
         thread = ExperimentThread(

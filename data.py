@@ -501,7 +501,7 @@ class CCELoader(BaseDataLoader):
                 'platform': cce.get('platform', ''),
                 'modified': cce.get('modified', ''),
                 'description': cce.find('.//cce:description', namespaces).text if cce.find('.//cce:description', namespaces) is not None else '',
-                'technical_mechanisms': [mech.text for mech in cce.findall('.//cce:technical_mechanism', namespaces)],
+                'technical_mechanisms': [mech.text for mech in cce.findall('.//cce:technical_mechanism', namespaces) if mech.text is not None],
                 'parameters': [param.text for param in cce.findall('.//cce:parameter', namespaces)],
                 'references': [{'id': ref.get('resource_id', ''), 'text': ref.text} for ref in cce.findall('.//cce:reference', namespaces)]
             }
