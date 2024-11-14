@@ -362,20 +362,25 @@ class PubMedQALoader(BaseDataLoader):
             }
         }
     
-    def _process_for_classification(self, example):
+    def _process_for_classification(self, batch):
         """处理段落分类任务的数据"""
         # 为每个段落创建单独的样本
-        processed_examples = []
-        for ctx, label in zip(example['CONTEXTS'], example['LABELS']):
-            processed_examples.append({
-                "input": ctx,
-                "output": label,
-                "metadata": {
-                    "question": example['QUESTION'],
-                    "meshes": example['MESHES']
-                }
-            })
-        return processed_examples
+        result = {
+            "input": [],
+            "output": [],
+            "metadata": []
+        }
+
+        for i in range(len(batch['CONTEXTS'])):
+            for ctx, label in zip(batch['CONTEXTS'][i], batch['LABELS'][i]):
+                result["input"].append(ctx)
+                result["output"].append(label)
+                result["metadata"].append({
+                    "question": batch['QUESTION'][i],
+                    "meshes": batch['MESHES'][i]
+                })
+    
+        return result
     
     def _process_for_summarization(self, example):
         """处理摘要生成任务的数据"""
@@ -456,8 +461,19 @@ class PubMedQALoader(BaseDataLoader):
             }
         }
 
-        dataset = load_dataset('bigbio/pubmed_qa')  # 需要替换为实际的数据集路径
-        processed_dataset = dataset.map(processing_fn)
+        datadict = load_dataset('bigbio/pubmed_qa')  # 需要替换为实际的数据集路径
+        # 简洁的字典推导式方式
+        batched = False
+        if processing_fn == self._process_for_classification:
+            batched = True
+        processed_dataset = DatasetDict({
+            split_name: dataset.map(
+                processing_fn,
+                batched=batched,
+                remove_columns=dataset.column_names,
+            )
+            for split_name, dataset in datadict.items()
+        })
         
         config = {
             "dataset_name": "medical_qa",
