@@ -826,6 +826,11 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.threshold = attack_config.get('obfuscation_threshold', 0.5)
         self.attack_template = attack_config.get('obsfucation_attack_template', "Classify the following text: {sample}")
 
+        self.detector_path = attack_config.get('detector_path', None)
+        if self.detector_path != None:
+            from detector import MembershipInference
+            self.detector = MembershipInference(self.detector_path)
+
     def attack(self, model):
         # 创建主表格和详细记录表格
         self.logger.new_table("attack_results")
@@ -858,7 +863,10 @@ class ObfuscationAttack(ICLAttackStrategy):
                 }]
                 response = model.query(query_prompt, "Obfuscation Attack")[0]
                 # response = response.split('\n')[0]  # 只使用第一行
-                similarity = self.obfuscator.calculate_similarity(original_text, response)
+                if self.detector_path != None:
+                    similarity = self.detector.predict(original_text, response)['probability']
+                else:
+                    similarity = self.obfuscator.calculate_similarity(original_text, response)
                 
                 # 记录level的详细信息
                 self.logger.add("sample_id", main_row, "level_details", level_row)
