@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
-from utils import output_directory
 import json
 
 @dataclass
@@ -239,8 +238,7 @@ class ExperimentRunner:
                 current_params.append(template_copy)
 
             # 运行实验
-            with output_directory(exp_name):
-                self.main_func(*current_params)
+            self.main_func(*current_params, exp_name)
             print(f"Experiment {exp_name} completed successfully")
 
 class ParallelExperimentRunner(ExperimentRunner):
@@ -317,8 +315,7 @@ class ParallelExperimentRunner(ExperimentRunner):
             template_params.append(current_params)
             
         try:
-            with output_directory(exp_name):
-                self.main_func(*template_params)
+            elf.main_func(*template_params, exp_name)
             print(f"Experiment {exp_name} completed successfully")
             return True
         except Exception as e:

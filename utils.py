@@ -14,34 +14,6 @@ from colorama import Fore, Style
 
 # Global output directory
 output_dir = "output"
-_cwd_stack = []
-
-@contextmanager
-def output_directory(path: str = None):
-    """Temporarily change the output directory
-    
-    Example:
-        with output_directory('new/path'):
-            # Do something with new output path
-        # Output path is restored
-    """
-    global _cwd_stack
-
-    if path is None:
-        path = "unnamed_experiment"
-    
-    # Convert to absolute path and ensure it exists
-    temp_dir = os.path.abspath(os.path.join(output_dir, path))
-    os.makedirs(temp_dir, exist_ok=True)
-    _cwd_stack.append(os.getcwd())
-    os.chdir(temp_dir)
-    
-    try:
-        yield
-    finally:
-        if len(_cwd_stack) > 0:
-            os.chdir(_cwd_stack[-1])
-            _cwd_stack.pop()
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -56,11 +28,13 @@ class NumpyEncoder(json.JSONEncoder):
         return super(NumpyEncoder, self).default(obj)
 
 class ExperimentLogger:
-    def __init__(self):
+    def __init__(self, name):
         self._tables: Dict[str, pd.DataFrame] = {}  # 存储所有表格
         self._current_table: Optional[str] = None   # 当前选中的表格
         self._current_row: Optional[int] = None     # 当前选中的行
         self._row_counters: Dict[str, int] = {}    # 每个表格的行计数
+        self.output_dir = os.path.join(output_dir, name)
+        os.makedirs(self.output_dir, exist_ok=True)
         
     def new_table(self, table_name: str) -> None:
         """创建新表格并将其设为当前表格"""
@@ -142,8 +116,14 @@ class ExperimentLogger:
     def save(self) -> None:
         """保存所有表格到文件"""
         for table_name, df in self._tables.items():
-            filename = f"{table_name}.json"
+            filename = os.path.join(self.output_dir, f"{table_name}.json")
             df.to_json(filename, orient='records', indent=4)
+
+    def savefig(self, *args, **kwargs) -> None:
+        """保存图表到文件"""
+        new_args = list(args)
+        new_args[0] = os.path.join(self.output_dir, args[0])
+        plt.savefig(*new_args, **kwargs)
 
     def load(self, filename: str) -> None:
         """从文件加载表格"""

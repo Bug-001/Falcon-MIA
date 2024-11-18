@@ -26,7 +26,7 @@ import torch.optim as optim
 
 from llm.tools.utils import get_logger
 from llm.query import QueryProcessor
-from utils import save_json, output_directory, ExperimentLogger
+from utils import save_json, ExperimentLogger
 from data import load_dataset_and_config
 
 logger = get_logger("ICL Attack", "info")
@@ -181,7 +181,7 @@ class ICLAttackStrategy(ABC):
         self.random_seed = attack_config.get('random_seed', random.randint(0, 1000000))
         random.seed(self.random_seed)
         self.results = []
-        self.logger = ExperimentLogger()
+        self.logger = ExperimentLogger(attack_config.get('name'))
 
     def prepare(self, data_config: Dict[str, Any], data_loader: ICLDataLoader = None):
         dataset_name = data_config["dataset"]
@@ -710,7 +710,7 @@ class HybridAttack(ICLAttackStrategy):
         plt.title('Training Loss Curve')
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
-        plt.savefig('hybrid_training_loss_curve.png')
+        self.logger.savefig('hybrid_training_loss_curve.png')
         plt.close()
 
     def prepare(self, data_config: Dict[str, Any]):
@@ -787,7 +787,7 @@ class HybridAttack(ICLAttackStrategy):
         plt.grid(True, linestyle='--', alpha=0.7)
 
         # 保存图像
-        plt.savefig('hybrid_attack_scores.png')
+        self.logger.savefig('hybrid_attack_scores.png')
         plt.close()
 
         logger.info("Hybrid attack scores plot saved as 'hybrid_attack_scores.png'")
@@ -909,7 +909,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         plt.ylabel('True Positive Rate')
         plt.title('Receiver Operating Characteristic (ROC) Curve')
         plt.legend(loc="lower right")
-        plt.savefig('obfuscation_roc_curve.png')
+        self.logger.savefig('obfuscation_roc_curve.png')
         plt.close()
 
         # 找到最佳F1分数对应的阈值
@@ -948,8 +948,9 @@ class ObfuscationAttack(ICLAttackStrategy):
         metrics['log_auc'] = log_auc
 
         if self.attack_config.get('plot_roc', False):
-            EvaluationMetrics.plot_roc(fpr, tpr, metrics['auc'], 'obfuscation_roc_curve.png')
-            EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, 'obfuscation_log_roc_curve.png')
+            pass
+            # EvaluationMetrics.plot_roc(fpr, tpr, metrics['auc'], 'obfuscation_roc_curve.png')
+            # EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, 'obfuscation_log_roc_curve.png')
 
         # 保存metrics
         for key, value in metrics.items():
@@ -963,7 +964,8 @@ def load_yaml_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, 'r') as file:
         return yaml.safe_load(file)
 
-def main(data_config, attack_config, query_config):
+def main(data_config, attack_config, query_config, name='unnamed_experiment'):
+    attack_config['name'] = name
     attack_strategy = ICLAttackStrategy.create(attack_config)
     if attack_strategy is None:
         raise ValueError(f"Attack type {attack_config['type']} is not supported.")
@@ -991,5 +993,4 @@ if __name__ == "__main__":
     data_config = load_yaml_config(args.data)
     attack_config = load_yaml_config(args.attack)
     query_config = load_yaml_config(args.query)
-    with output_directory(args.output):
-        main(data_config, attack_config, query_config)
+    main(data_config, attack_config, query_config)
