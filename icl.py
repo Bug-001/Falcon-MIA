@@ -9,7 +9,7 @@ import string
 import numpy as np
 from dotenv import load_dotenv
 from abc import ABC, abstractmethod
-from datasets import load_dataset, Dataset
+from datasets import load_dataset, Dataset, DatasetDict
 from typing import List, Dict, Any, Tuple
 from tqdm import tqdm
 from functools import wraps
@@ -26,8 +26,7 @@ import torch.optim as optim
 
 from llm.tools.utils import get_logger
 from llm.query import QueryProcessor
-from utils import save_json, ExperimentLogger
-from data import load_dataset_and_config
+from utils import SLogger, SDatasetManager
 
 logger = get_logger("ICL Attack", "info")
 init()
@@ -114,20 +113,10 @@ class EvaluationMetrics:
         plt.close()
 
 class ICLDataLoader:
-    def __init__(self, dataset: Dataset, batch_size: int, batch_num: int, seed: int, selected_attack_sample: int = 0):
-        self.seed = seed
-        if 'test' in dataset.keys():
-            self.train_dataset = dataset['train'].shuffle(seed=self.seed)
-            self.test_dataset = dataset['test'].shuffle(seed=self.seed)
-        else:
-            train_data = dataset['train'].shuffle(seed=self.seed)
-            train_idx, test_idx = train_test_split(
-                range(len(train_data)), 
-                test_size=0.3, 
-                random_state=self.seed
-            )
-            self.train_dataset = train_data.select(train_idx)
-            self.test_dataset = train_data.select(test_idx)
+    def __init__(self, dataset: DatasetDict, batch_size: int, batch_num: int, selected_attack_sample: int = 0):
+        self.train_dataset = dataset['train']
+        self.valid_dataset = dataset['validation']
+        self.test_dataset = dataset['test']
         self.batch_size = batch_size
         self.batch_num = batch_num
         self.selected_attack_sample = selected_attack_sample
@@ -147,8 +136,8 @@ class ICLDataLoader:
                 if is_member:
                     attack_sample = icl_samples[i % self.batch_size]
                 else:
-                    attack_sample = self.test_dataset[test_index]
-                    test_index = (test_index + 1) % len(self.test_dataset)
+                    attack_sample = self.valid_dataset[test_index]
+                    test_index = (test_index + 1) % len(self.valid_dataset)
             elif 1 <= self.selected_attack_sample <= self.batch_size:
                 # 选择指定索引的成员样本
                 is_member = True
@@ -156,8 +145,8 @@ class ICLDataLoader:
             else:
                 # 选择非成员样本
                 is_member = False
-                attack_sample = self.test_dataset[test_index]
-                test_index = (test_index + 1) % len(self.test_dataset)
+                attack_sample = self.valid_dataset[test_index]
+                test_index = (test_index + 1) % len(self.valid_dataset)
             
             data.append((icl_samples, attack_sample, is_member))
         return data
@@ -181,15 +170,22 @@ class ICLAttackStrategy(ABC):
         self.random_seed = attack_config.get('random_seed', random.randint(0, 1000000))
         random.seed(self.random_seed)
         self.results = []
-        self.logger = ExperimentLogger(attack_config.get('name'))
+        self.logger = SLogger(attack_config.get('name'))
 
     def prepare(self, data_config: Dict[str, Any], data_loader: ICLDataLoader = None):
         dataset_name = data_config["dataset"]
         task = data_config.get("task", "default")
         
         # 加载数据集和其默认配置
-        dataset, default_config = load_dataset_and_config(dataset_name, task)
-        
+        self.sdm = SDatasetManager(dataset_name, task)
+        num_train = self.attack_config.get('num_attacks', 100) * \
+                    data_config.get('num_demonstrations', 6)
+        num_valid = self.attack_config.get('num_attacks', 100)
+        num_test = 1
+        split = [num_train, num_valid, num_test]
+        dataset = self.sdm.crop_dataset(split=split, seed=self.random_seed)
+        default_config = self.sdm.get_config()
+
         # 合并默认配置和用户配置
         self.data_config = {
             **default_config,
@@ -202,11 +198,9 @@ class ICLAttackStrategy(ABC):
                 dataset=dataset,
                 batch_size=self.data_config["num_demonstrations"],
                 batch_num=self.attack_config.get('num_attacks', 100),
-                seed=self.random_seed,
                 selected_attack_sample=self.attack_config.get('selected_attack_sample', 0)
             )
 
-        self.label_translation = self.data_config.get('label_map', {})
         self.user_prompt = self.data_config['prompt_template']['user']
         self.assistant_prompt = self.data_config['prompt_template']['assistant']
     
@@ -812,7 +806,7 @@ class HybridAttack(ICLAttackStrategy):
         print(f"Repeat: {self.repeat_attack.evaluate()}")
         print(f"Brainwash: {self.brainwash_attack.evaluate()}")
 
-        save_json('evaluation.json', metrics)
+        # self.logger.save_json('evaluation.json', metrics)
 
         return metrics
 

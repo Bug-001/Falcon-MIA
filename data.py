@@ -1,6 +1,7 @@
 from typing import Dict, Tuple, Any, List
 from datasets import load_dataset, Dataset, DatasetDict
 from abc import ABC, abstractmethod
+from sklearn.model_selection import train_test_split
 from pathlib import Path
 import requests
 from tqdm import tqdm
@@ -10,7 +11,7 @@ import os
 class BaseDataLoader(ABC):
     """数据集加载器的基类"""
     @abstractmethod
-    def load(self, task: str = "default") -> Tuple[Dataset, Dict[str, Any]]:
+    def load(self, task: str = "default", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
         加载并处理数据集
         Args:
@@ -30,7 +31,7 @@ class GPQALoader(BaseDataLoader):
     def get_supported_tasks(self) -> List[str]:
         return ["default"]
 
-    def load(self, task: str = "default") -> Tuple[Dataset, Dict[str, Any]]:
+    def load(self, task: str = "default", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         if task != "default":
             raise ValueError("GPQA only supports default task")
         
@@ -61,7 +62,7 @@ class TRECLoader(BaseDataLoader):
     def get_supported_tasks(self) -> List[str]:
         return ["default"]
 
-    def load(self, task: str = "default") -> Tuple[Dataset, Dict[str, Any]]:
+    def load(self, task: str = "default", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         if task != "default":
             raise ValueError("TREC only supports default task")
         
@@ -102,7 +103,7 @@ class AGNewsLoader(BaseDataLoader):
     def get_supported_tasks(self) -> List[str]:
         return ["default"]
 
-    def load(self, task: str = "default") -> Tuple[Dataset, Dict[str, Any]]:
+    def load(self, task: str = "default", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         if task != "default":
             raise ValueError("AGNews only supports default task")
         
@@ -173,7 +174,7 @@ class LexGlueLoader(BaseDataLoader):
             "output": example['endings'][example['label']]  # 使用正确的ending作为目标输出
         }
     
-    def load(self, task: str = "prediction") -> Tuple[Dataset, Dict[str, Any]]:
+    def load(self, task: str = "prediction", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
         加载并处理法律文本数据集
         
@@ -237,12 +238,7 @@ class MedNLILoader(BaseDataLoader):
     def get_supported_tasks(self) -> List[str]:
         return ["nli", "classification", "explanation"]
     
-    def _download_and_prepare_data(self, data_dir: str) -> Dataset:
-        """
-        准备数据集
-        Args:
-            data_dir: 包含mli_train.jsonl等文件的目录路径
-        """
+    def _prepare_data(self, data_dir: str) -> Dataset:
         # 检查必要的文件是否存在
         required_files = ['mli_train.jsonl', 'mli_dev.jsonl', 'mli_test.jsonl']
         for file in required_files:
@@ -285,13 +281,12 @@ class MedNLILoader(BaseDataLoader):
             "label": example['gold_label']
         }
     
-    def load(self, task: str = "nli", data_dir: str = "./mednli_data") -> Tuple[Dataset, Dict[str, Any]]:
+    def load(self, task: str = "nli", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
         加载并处理MedNLI数据集
         
         Args:
             task: 任务类型，支持 "nli"/"classification"/"explanation"
-            data_dir: 数据集文件所在目录
             
         Returns:
             处理后的数据集和配置信息
@@ -300,7 +295,8 @@ class MedNLILoader(BaseDataLoader):
             raise ValueError(f"Task {task} not supported. Available tasks: {self.get_supported_tasks()}")
         
         # 加载原始数据集
-        dataset = self._download_and_prepare_data(data_dir)
+        data_dir = os.path.join(kwargs.get("data_dir"), 'mednli')
+        dataset = self._prepare_data(data_dir)
         
         # 根据任务类型选择处理方法
         if task == "nli":
@@ -405,7 +401,7 @@ class PubMedQALoader(BaseDataLoader):
             }
         }
     
-    def load(self, task: str = "qa") -> Tuple[Dataset, Dict[str, Any]]:
+    def load(self, task: str = "qa", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
         加载并处理医学文献问答数据集
         
@@ -589,7 +585,7 @@ class CCELoader(BaseDataLoader):
             }
         }
     
-    def load(self, task: str = "classification", data_dir: str = Path.home()/".cache/better-mia/data", data_name: str = "cce-COMBINED-5.20130214.xml") -> Tuple[Dataset, Dict[str, Any]]:
+    def load(self, task: str = "classification", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
         加载并处理CCE数据集
         
@@ -604,11 +600,13 @@ class CCELoader(BaseDataLoader):
             raise ValueError(f"Task {task} not supported. Available tasks: {self.get_supported_tasks()}")
         
         # 解析XML数据
-        data_path = os.path.join(data_dir, data_name)
+        data_name: str = "cce-COMBINED-5.20130214.xml"
+        cce_dir = os.path.join(kwargs.get("data_dir"), 'cce')
+        data_path = os.path.join(cce_dir, data_name)
         try:
             raw_data = self._parse_xml_data(data_path)
         except FileNotFoundError:
-            os.makedirs(data_dir, exist_ok=True)
+            os.makedirs(cce_dir, exist_ok=True)
             # 发送GET请求，流式传输
             url = "https://cce.mitre.org/lists/data/downloads/cce-COMBINED-5.20130214.xml"
             response = requests.get(url, stream=True)
@@ -701,53 +699,3 @@ DATASET_LOADERS = {
     "pubmedqa": PubMedQALoader,
     "cce": CCELoader,
 }
-
-def get_available_tasks(dataset_name: str) -> List[str]:
-    """获取指定数据集支持的所有任务"""
-    if dataset_name not in DATASET_LOADERS:
-        raise ValueError(f"Dataset {dataset_name} not found. Available datasets: {list(DATASET_LOADERS.keys())}")
-    
-    loader: BaseDataLoader = DATASET_LOADERS[dataset_name]()
-    return loader.get_supported_tasks()
-
-def load_dataset_and_config(dataset_name: str, task: str = "default") -> Tuple[Dataset, Dict[str, Any]]:
-    """
-    统一的数据集加载接口
-    
-    Args:
-        dataset_name: 数据集名称
-        task: 任务名称，默认为"default"
-    
-    Returns:
-        处理后的数据集和配置信息的元组
-    
-    Raises:
-        ValueError: 如果数据集名称未注册或任务不支持
-    """
-    if dataset_name not in DATASET_LOADERS:
-        raise ValueError(f"Dataset {dataset_name} not found. Available datasets: {list(DATASET_LOADERS.keys())}")
-    
-    loader: BaseDataLoader = DATASET_LOADERS[dataset_name]()
-    supported_tasks = loader.get_supported_tasks()
-    
-    if task not in supported_tasks:
-        raise ValueError(f"Task {task} not supported for dataset {dataset_name}. Available tasks: {supported_tasks}")
-    
-    return loader.load(task)
-
-# 使用示例
-if __name__ == "__main__":
-    # 测试多任务数据集
-    print("SQuAD supported tasks:", get_available_tasks("squad"))
-    for task in get_available_tasks("squad"):
-        dataset, config = load_dataset_and_config("squad", task)
-        print(f"\nSQuAD {task} task config:", config)
-        print(f"SQuAD {task} example:", dataset['train'][0])
-    
-    # 测试单任务数据集
-    single_task_datasets = ["gpqa", "trec", "agnews"]
-    for dataset_name in single_task_datasets:
-        print(f"\n{dataset_name} supported tasks:", get_available_tasks(dataset_name))
-        dataset, config = load_dataset_and_config(dataset_name)
-        print(f"{dataset_name} Config:", config)
-        print(f"{dataset_name} Example:", dataset['train'][0])

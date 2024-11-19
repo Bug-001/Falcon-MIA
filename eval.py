@@ -48,7 +48,7 @@ def plot_guitar(data):
     plt.close()
 
 # 假设您的输出文件夹路径
-base_path = 'output'
+base_path = 'cache'
 
 # 加载数据
 data = load_data(base_path)

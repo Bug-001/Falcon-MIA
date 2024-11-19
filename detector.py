@@ -249,7 +249,7 @@ def main():
     
     # 设置训练参数
     training_args = TrainingArguments(
-        output_dir="output/detector/qwen0.5b-test",
+        output_dir="cache/model/detector/qwen0.5b-test",
         eval_strategy="steps",
         eval_steps=100,
         save_strategy="steps",
@@ -264,7 +264,7 @@ def main():
         metric_for_best_model="f1",
         remove_unused_columns=False,
         report_to="wandb",          # 启用wandb记录
-        logging_dir="output/detector/log",
+        logging_dir="cache/model/detector/log",
         logging_steps=10,
     )
     
@@ -282,7 +282,7 @@ def main():
     trainer.train(resume_from_checkpoint=True)
     
     # 保存最终模型
-    trainer.save_model("output/detector/qwen0.5b-test")
+    trainer.save_model("cache/model/detector/qwen0.5b-test")
 
 if __name__ == "__main__":
     main()

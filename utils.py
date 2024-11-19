@@ -4,16 +4,19 @@ import json
 import pickle
 import functools
 import hashlib
-from typing import Any, Callable
+from typing import Any, Callable, Tuple
 from matplotlib import pyplot as plt
 from contextlib import contextmanager
 from typing import Dict, Any, Optional, List
 import pandas as pd
 from datetime import datetime
 from colorama import Fore, Style
+from datasets import Dataset, DatasetDict
+
+from data import DATASET_LOADERS, BaseDataLoader
 
 # Global output directory
-output_dir = "output"
+output_dir = "cache"
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -27,13 +30,13 @@ class NumpyEncoder(json.JSONEncoder):
             return bool(obj)
         return super(NumpyEncoder, self).default(obj)
 
-class ExperimentLogger:
+class SLogger:
     def __init__(self, name):
         self._tables: Dict[str, pd.DataFrame] = {}  # 存储所有表格
         self._current_table: Optional[str] = None   # 当前选中的表格
         self._current_row: Optional[int] = None     # 当前选中的行
         self._row_counters: Dict[str, int] = {}    # 每个表格的行计数
-        self.output_dir = os.path.join(output_dir, name)
+        self.output_dir = os.path.join(output_dir, "log", name)
         os.makedirs(self.output_dir, exist_ok=True)
         
     def new_table(self, table_name: str) -> None:
@@ -145,6 +148,92 @@ class ExperimentLogger:
             result.append("-" * 50)
         return "\n".join(result)
 
-def save_json(filename: str, data: Any):
-    with open(filename, 'w') as f:
-        json.dump(data, f, indent=2, cls=NumpyEncoder)
+class SDatasetManager:
+    def __init__(self, dataset_name: str, task: str = "default"):
+        self.dir = os.path.join(output_dir, "data")
+        self.dataset_name = dataset_name
+
+        if dataset_name not in DATASET_LOADERS:
+            raise ValueError(f"Dataset {dataset_name} not found. Available datasets: {list(DATASET_LOADERS.keys())}")
+        
+        loader: BaseDataLoader = DATASET_LOADERS[dataset_name]()
+        supported_tasks = loader.get_supported_tasks()
+        
+        if task not in supported_tasks:
+            raise ValueError(f"Task {task} not supported for dataset {dataset_name}. Available tasks: {supported_tasks}")
+        
+        self._dataset, self.config = loader.load(task)
+
+    def get_config(self) -> Dict[str, Any]:
+        return self.config
+
+    def get_available_tasks(self) -> List[str]:
+        loader: BaseDataLoader = DATASET_LOADERS[self.dataset_name]()
+        return loader.get_supported_tasks()
+
+    def crop_dataset(self, num=-1, split=[0.8,0.1,0.1], seed=42):
+        if isinstance(split[0], float):
+            if sum(split) != 1:
+                raise ValueError("Split ratios must sum to 1")
+            elif num == -1:
+                num = len(self._dataset['train'])
+            train_num = int(num * split[0])
+            val_num = int(num * split[1])
+            test_num = num - train_num - val_num
+        elif isinstance(split[0], int):
+            train_num, val_num, test_num = split
+
+        dataset: DatasetDict = self._dataset.copy()
+
+        train_data = dataset['train'].shuffle(seed=seed)
+        train_dataset = train_data.select(range(train_num))
+
+        if 'validation' in dataset.keys():
+            val_data = dataset['validation'].shuffle(seed=seed)
+            val_dataset = val_data.select(range(val_num))
+        else:
+            val_dataset = train_data.select(range(train_num, train_num + val_num))
+
+        if 'test' in dataset.keys():
+            test_data = dataset['test'].shuffle(seed=seed)
+            test_dataset = test_data.select(range(test_num))
+        else:
+            test_dataset = train_data.select(range(train_num + val_num, train_num + val_num + test_num))
+        
+        # 创建DatasetDict
+        dataset_dict = DatasetDict({
+            'train': train_dataset,
+            'validation': val_dataset,
+            'test': test_dataset
+        })
+        
+        return dataset_dict
+    
+    def save_dataset(self, path: str, dataset: DatasetDict = None) -> None:
+        """保存数据集到文件"""
+        if dataset == None:
+            dataset = self._dataset
+        dataset_path = os.path.join(self.dir, path)
+        dataset.save_to_disk(dataset_path)
+
+# def save_json(filename: str, data: Any):
+#     with open(filename, 'w') as f:
+#         json.dump(data, f, indent=2, cls=NumpyEncoder)
+
+# 使用示例
+# if __name__ == "__main__":
+#     sdm = SDatasetManager()
+#     # 测试多任务数据集
+#     print("SQuAD supported tasks:", sdm.get_available_tasks("squad"))
+#     for task in sdm.get_available_tasks("squad"):
+#         dataset, config = sdm.load_dataset_and_config("squad", task)
+#         print(f"\nSQuAD {task} task config:", config)
+#         print(f"SQuAD {task} example:", dataset['train'][0])
+    
+#     # 测试单任务数据集
+#     single_task_datasets = ["gpqa", "trec", "agnews"]
+#     for dataset_name in single_task_datasets:
+#         print(f"\n{dataset_name} supported tasks:", sdm.get_available_tasks(dataset_name))
+#         dataset, config = sdm.load_dataset_and_config(dataset_name)
+#         print(f"{dataset_name} Config:", config)
+#         print(f"{dataset_name} Example:", dataset['train'][0])

@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 import re
 
 class LogCollector:
-    def __init__(self, output_dir: str = "~/.cache/better-mia/data"):
+    def __init__(self, output_dir: str = "~/cache/data"):
         self.output_dir = os.path.expanduser(output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
     
@@ -119,7 +119,7 @@ def main():
     ]
     
     for root_folder in root_folders:
-        folder = os.path.join("output", root_folder)
+        folder = os.path.join("cache/log", root_folder)
         # Collect and process data
         collected_data = collector.collect_data(folder)
         # Save the processed data

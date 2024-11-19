@@ -173,7 +173,7 @@ class ExperimentRunner:
 
     def _need_rerun(self, exp_name: str) -> bool:
         """判断实验是否需要重新运行"""
-        exp_dir = Path(os.path.join("output", exp_name))
+        exp_dir = Path(os.path.join("cache/log", exp_name))
 
         # 检查metrics.json是否为空或损坏
         metric_file = os.path.join(exp_dir, "metrics.json")
@@ -315,7 +315,7 @@ class ParallelExperimentRunner(ExperimentRunner):
             template_params.append(current_params)
             
         try:
-            elf.main_func(*template_params, exp_name)
+            self.main_func(*template_params, exp_name)
             print(f"Experiment {exp_name} completed successfully")
             return True
         except Exception as e:
