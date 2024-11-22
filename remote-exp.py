@@ -53,9 +53,9 @@ class ExperimentThread(threading.Thread):
         self.ssh_user = ssh_user
         
         # Create output/log directory if it doesn't exist
-        os.makedirs("output/log", exist_ok=True)
-        os.makedirs("output/server-config", exist_ok=True)
-        os.makedirs("output/param-config", exist_ok=True)
+        os.makedirs("cache/log", exist_ok=True)
+        os.makedirs("cache/config/server-config", exist_ok=True)
+        os.makedirs("cache/config/param-config", exist_ok=True)
         
     def create_param_configs(self, base_param_config):
         """
@@ -83,7 +83,7 @@ class ExperimentThread(threading.Thread):
         #     configs.append((param_file, new_config))
 
         # XXX: No-parallel
-        param_file = f"output/param-config/param-{self.thread_id}.yaml"
+        param_file = f"cache/config/param-config/param-{self.thread_id}.yaml"
         configs.append((param_file, param_config))
         with open(param_file, 'w') as f:
             yaml.dump(param_config, f)
@@ -92,7 +92,7 @@ class ExperimentThread(threading.Thread):
 
     def update_server_config(self, model_name, num_gpus):
         # Create or update server config file
-        server_file = f"output/server-config/server-{self.thread_id}.yaml"
+        server_file = f"cache/config/server-config/server-{self.thread_id}.yaml"
         if not os.path.exists(server_file):
             with open("server.yaml", 'r') as f:
                 config = yaml.safe_load(f)
@@ -117,9 +117,10 @@ class ExperimentThread(threading.Thread):
         # Update name_prefix with model name (part after slash)
         param_config['name_prefix'] = model_name.split('/')[-1]
         # XXX: param_config['params'][2]['config'] is query_config
-        param_config['params'][2]['config']['model'] = [f"../../../output/server-config/server-{self.thread_id}.yaml"]
+        param_config['params'][2]['config']['model'] = [f"cache/config/server-config/server-{self.thread_id}.yaml"]
         
         return param_config
+        
     
     def create_remote_directory(self, sftp, remote_path):
         """Recursively create remote directory if it doesn't exist"""
@@ -201,7 +202,7 @@ class ExperimentThread(threading.Thread):
         # Create a unique log file name based on timestamp, model name and thread id
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         model_short_name = model_name.split('/')[-1]
-        log_file = f"output/log/experiment_{timestamp}_{model_short_name}_thread{self.thread_id}.log"
+        log_file = f"cache/log/experiment_{timestamp}_{model_short_name}_thread{self.thread_id}.log"
         
         # Create file handler and set level to INFO
         file_handler = logging.FileHandler(log_file)
@@ -280,7 +281,7 @@ class ExperimentThread(threading.Thread):
                 param_configs = self.create_param_configs(base_param_config)
                 
                 # Start LLM server
-                command = f"cd online1/remote/better-MIA && srun -p q_amd_gpu_nvidia_1 --gres=gpu:{num_gpus} python llm/server.py -c output/server-config/server-{self.thread_id}.yaml"
+                command = f"cd online1/remote/better-MIA && srun -p q_amd_gpu_nvidia_1 --gres=gpu:{num_gpus} python llm/server.py -c cache/config/server-config/server-{self.thread_id}.yaml"
                 _, stdout, stderr = ssh_client.exec_command(command)
                 
                 # XXX
@@ -343,7 +344,7 @@ def main():
     
     # Create and start threads (maximum 8)
     threads = []
-    num_threads = min(4, len(models))
+    num_threads = min(1, len(models))
     
     for thread_id in range(num_threads):
         thread = ExperimentThread(

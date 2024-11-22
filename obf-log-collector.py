@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 import re
 
 class LogCollector:
-    def __init__(self, output_dir: str = "~/cache/data"):
+    def __init__(self, output_dir: str = "cache/data/"):
         self.output_dir = os.path.expanduser(output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
     
