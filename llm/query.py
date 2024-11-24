@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 import logging
 import openai
 import time
+from typing import List, Dict
 
 from .tools.utils import get_logger
 
@@ -40,15 +41,11 @@ class LocalClient(ModelClient):
         self.client = OpenAI(base_url=base_url)
 
     def chat_completion(self, messages, **kwargs):
-        try:
-            completion = self.client.chat.completions.create(
-                messages=messages,
-                **kwargs
-            )
-            return completion.choices[0].message.content
-        except Exception as e:
-            logger.warning(f"Error during Local API request: {e}")
-            return None
+        completion = self.client.chat.completions.create(
+            messages=messages,
+            **kwargs
+        )
+        return completion.choices[0].message.content
 
 class InfinigenceClient(ModelClient):
     def __init__(self, api_key):
@@ -237,6 +234,21 @@ def get_api_key(provider):
 def read_yaml(file_path):
     with open(file_path, 'r') as file:
         return yaml.safe_load(file)
+
+class ModelInterface:
+    def __init__(self, query_config):
+        self.query_config = query_config
+        
+    def query(self, prompt: List[Dict[str, str]], chat_name: str) -> str:
+        config = self.query_config.copy()
+        chat_config = {
+            "name": chat_name,
+            "messages": prompt
+        }
+        config['chats'] = [chat_config]
+        
+        llm_response = QueryProcessor(config).process_query()[0]
+        return llm_response
 
 if __name__ == "__main__":
     load_dotenv()

@@ -1,7 +1,8 @@
 import re
+import math
 import random
 import string
-from typing import Dict, Any, List, Set, Optional, Tuple
+from typing import Dict, Any, List, Set, Optional, Tuple, Union
 import nltk
 from nltk.corpus import wordnet, stopwords
 from nltk.tokenize import word_tokenize
@@ -245,54 +246,156 @@ class ObfuscationTechniques:
             chars[i], chars[j] = chars[j], chars[i]
         return ''.join(chars)
 
-    def _preprocess(self, text):
-        # 转换为小写
-        text = text.lower()
-        # 分词
-        tokens = word_tokenize(text)
-        # 去除停用词和标点符号
-        tokens = [token.translate(str.maketrans('', '', string.punctuation)) 
-                  for token in tokens if token not in self.stop_words]
-        return tokens
+class StringHelper:
+    def __init__(self):
+        self._stop_words = None
+        self._sentence_model = None
+        # self._model_name = 'distilbert-base-nli-mean-tokens'
+        self._model_name = 'paraphrase-MiniLM-L6-v2'
+        
+    @property
+    def stop_words(self):
+        """Lazy loading of NLTK stop words."""
+        if self._stop_words is None:
+            try:
+                import nltk
+                from nltk.corpus import stopwords
+                self._stop_words = set(stopwords.words('english'))
+            except LookupError as e:
+                print(f"Error loading NLTK resources: {e}")
+                self._stop_words = set()
+        return self._stop_words
+        
+    @property
+    def sentence_model(self):
+        """Lazy loading of sentence transformer model."""
+        if self._sentence_model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._sentence_model = SentenceTransformer(self._model_name)
+            except ImportError as e:
+                raise ImportError(f"Please install sentence-transformers: {e}")
+        return self._sentence_model
 
-    def calculate_similarity(self, original_text, response):
-        # 预处理原始文本和响应
-        original_tokens = self._preprocess(original_text)
-        response_tokens = self._preprocess(response)
+    def preprocess_text(self, text: str, mode: str = 'lexical') -> Union[List[str], np.ndarray]:
+        """
+        Preprocess text based on specified mode.
         
-        # 计算词频
-        original_freq = Counter(original_tokens)
-        response_freq = Counter(response_tokens)
+        Args:
+            text (str): Input text
+            mode (str): 'lexical' or 'semantic'
+            
+        Returns:
+            Union[List[str], np.ndarray]: Preprocessed text as tokens or embedding
+        """
+        if mode == 'lexical':
+            # Lexical preprocessing
+            text = text.lower()
+            tokens = word_tokenize(text)
+            # Remove stopwords and punctuation
+            tokens = [token.translate(str.maketrans('', '', string.punctuation)) 
+                     for token in tokens if token not in self.stop_words]
+            return [t for t in tokens if t]
+            
+        elif mode == 'semantic':
+            # Semantic preprocessing - get embedding
+            return self.sentence_model.encode(text)
+        else:
+            raise ValueError(f"Unsupported preprocessing mode: {mode}")
+
+    def truncate_text(self, text: str, num_words: int) -> str:
+        """Truncate text to a certain number of words."""
+        tokens = word_tokenize(text)
+        return ' '.join(tokens[:num_words])
+
+    # Lexical similarities
+    def lexical_jaccard_similarity(self, tokens1: List[str], tokens2: List[str]) -> float:
+        """Calculate Jaccard similarity between token lists."""
+        set1 = set(tokens1)
+        set2 = set(tokens2)
+        return len(set1 & set2) / len(set1 | set2) if set1 or set2 else 0.0
+
+    def lexical_frequency_similarity(self, tokens1: List[str], tokens2: List[str]) -> float:
+        """Calculate frequency-based similarity between token lists."""
+        freq1 = Counter(tokens1)
+        freq2 = Counter(tokens2)
+        common_words = set(freq1.keys()) & set(freq2.keys())
         
-        # 计算共同词汇
-        common_words = set(original_freq.keys()) & set(response_freq.keys())
+        if not common_words:
+            return 0.0
+            
+        common_freq_sum = sum(min(freq1[word], freq2[word]) for word in common_words)
+        total_freq_sum = max(sum(freq1.values()), sum(freq2.values()))
+        return common_freq_sum / total_freq_sum if total_freq_sum > 0 else 0.0
+
+    def lexical_sequence_similarity(self, tokens1: List[str], tokens2: List[str]) -> float:
+        """Calculate sequence similarity (LCS-based) between token lists."""
+        if not tokens1 or not tokens2:
+            return 0.0
+            
+        m, n = len(tokens1), len(tokens2)
+        L = [[0] * (n + 1) for _ in range(m + 1)]
         
-        # 计算Jaccard相似度
-        jaccard_sim = len(common_words) / (len(set(original_freq.keys()) | set(response_freq.keys())))
+        for i in range(m + 1):
+            for j in range(n + 1):
+                if i == 0 or j == 0:
+                    L[i][j] = 0
+                elif tokens1[i-1] == tokens2[j-1]:
+                    L[i][j] = L[i-1][j-1] + 1
+                else:
+                    L[i][j] = max(L[i-1][j], L[i][j-1])
         
-        # 计算词频相似度
-        freq_sim = sum(min(original_freq[word], response_freq[word]) for word in common_words) / max(sum(original_freq.values()), sum(response_freq.values()))
+        return L[m][n] / max(m, n)
+
+    # Semantic similarities
+    def semantic_cosine_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
+        """Calculate cosine similarity between embeddings."""
+        return float(1 - cosine(emb1, emb2))
+
+    def semantic_euclidean_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
+        """Calculate euclidean-based similarity between embeddings."""
+        return float(1 / (1 + np.linalg.norm(emb1 - emb2)))
+
+    def semantic_manhattan_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
+        """Calculate Manhattan distance-based similarity between embeddings."""
+        return float(1 / (1 + np.sum(np.abs(emb1 - emb2))))
+
+    def semantic_dot_product_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
+        """Calculate normalized dot product similarity between embeddings."""
+        return float(np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2)))
+
+    def calculate_overall_similarity_dict(self, text1: str, text2: str) -> Dict[str, float]:
+        """
+        Calculate similarity metrics and return as dictionary.
         
-        # 计算词序相似度
-        def lcs(X, Y):
-            m, n = len(X), len(Y)
-            L = [[0] * (n + 1) for _ in range(m + 1)]
-            for i in range(m + 1):
-                for j in range(n + 1):
-                    if i == 0 or j == 0:
-                        L[i][j] = 0
-                    elif X[i-1] == Y[j-1]:
-                        L[i][j] = L[i-1][j-1] + 1
-                    else:
-                        L[i][j] = max(L[i-1][j], L[i][j-1])
-            return L[m][n]
+        Args:
+            text1 (str): First text
+            text2 (str): Second text
+            
+        Returns:
+            Dict[str, float]: Dictionary containing similarity scores
+        """
+
+        similarities = {}
+
+        # 1. In lexical mode
+        mode = 'lexical'
+        data1 = self.preprocess_text(text1, mode)
+        data2 = self.preprocess_text(text2, mode)
+        similarities['jaccard'] = self.lexical_jaccard_similarity(data1, data2)
+        similarities['frequency'] = self.lexical_frequency_similarity(data1, data2)
+        similarities['sequence'] = self.lexical_sequence_similarity(data1, data2)
+
+        # 2. In semantic mode
+        mode = 'semantic'
+        data1 = self.preprocess_text(text1, mode)
+        data2 = self.preprocess_text(text2, mode)
+        similarities['cosine'] = self.semantic_cosine_similarity(data1, data2)
+        similarities['euclidean'] = self.semantic_euclidean_similarity(data1, data2)
+        similarities['manhattan'] = self.semantic_manhattan_similarity(data1, data2)
+        similarities['dot_product'] = self.semantic_dot_product_similarity(data1, data2)
         
-        order_sim = lcs(original_tokens, response_tokens) / max(len(original_tokens), len(response_tokens))
-        
-        # 综合相似度（可以调整权重）
-        similarity = 0.4 * jaccard_sim + 0.4 * freq_sim + 0.2 * order_sim
-        
-        return similarity
+        return similarities
 
 if __name__ == "__main__":
     # 测试文本

@@ -9,11 +9,15 @@ from matplotlib import pyplot as plt
 from contextlib import contextmanager
 from typing import Dict, Any, Optional, List
 import pandas as pd
+import torch
 from datetime import datetime
-from colorama import Fore, Style
+from colorama import Fore, Style, init
 from datasets import Dataset, DatasetDict
 
 from data import DATASET_LOADERS, BaseDataLoader
+
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import roc_curve, auc, f1_score
 
 # Global output directory
 output_dir = "cache"
@@ -36,8 +40,10 @@ class SLogger:
         self._current_table: Optional[str] = None   # 当前选中的表格
         self._current_row: Optional[int] = None     # 当前选中的行
         self._row_counters: Dict[str, int] = {}    # 每个表格的行计数
+        self.root_dir = output_dir
         self.output_dir = os.path.join(output_dir, "log", name)
         os.makedirs(self.output_dir, exist_ok=True)
+        init()
         
     def new_table(self, table_name: str) -> None:
         """创建新表格并将其设为当前表格"""
@@ -107,6 +113,13 @@ class SLogger:
         table = table_name or self._current_table
         if table is None:
             raise ValueError("No table specified or selected")
+        try:
+            # 如果表格不存在，试着用load打开
+            if table not in self._tables:
+                self.load(table)
+        except FileNotFoundError:
+        # 表格不存在，创建空表
+            self.new_table(table)
         return self._tables[table]
 
     def get_row(self, row: int, table: Optional[str] = None) -> pd.Series:
@@ -128,16 +141,52 @@ class SLogger:
         new_args[0] = os.path.join(self.output_dir, args[0])
         plt.savefig(*new_args, **kwargs)
 
+    def save_data(self, data: Any, filename: str) -> None:
+        """保存数据到文件"""
+        filename = os.path.join(self.output_dir, filename)
+        with open(filename, 'wb') as f:
+            pickle.dump(data, f)
+
+    def save_model(self, model, filename: str) -> None:
+        """保存PyTorch模型到文件"""
+        filename = os.path.join(self.output_dir, filename)
+        torch.save(model.state_dict(), filename)
+
+    def load_data(self, filename: str) -> Any:
+        """从文件加载数据"""
+        filename = os.path.join(self.output_dir, filename)
+        try:
+            with open(filename, 'rb') as f:
+                data = pickle.load(f)
+            return data
+        except FileNotFoundError:
+            return None
+        
+    def load_model(self, model, filename: str) -> None:
+        """从文件加载PyTorch模型"""
+        filename = os.path.join(self.output_dir, filename)
+        model.load_state_dict(torch.load(filename))
+
     def load(self, filename: str) -> None:
         """从文件加载表格"""
-        if not os.path.exists(filename):
+        data_path = os.path.join(self.output_dir, f"{filename}.json")
+        if not os.path.exists(data_path):
             raise FileNotFoundError(f"File {filename} not found")
             
-        df = pd.read_json(filename, orient='records')
+        df = pd.read_json(data_path, orient='records')
         table_name = filename  # 从文件名提取表名
         self._tables[table_name] = df
         self._row_counters[table_name] = len(df)
         self._current_table = table_name
+
+    def info(self, *args, **kwargs):
+        print(Fore.GREEN + "[INFO]" + Style.RESET_ALL, *args, **kwargs)
+
+    def warning(self, *args, **kwargs):
+        print(Fore.YELLOW + "[WARNING]" + Style.RESET_ALL, *args, **kwargs)
+
+    def error(self, *args, **kwargs):
+        print(Fore.RED + "[ERROR]" + Style.RESET_ALL, *args, **kwargs)
 
     def __str__(self) -> str:
         """返回所有表格的字符串表示"""
@@ -162,7 +211,7 @@ class SDatasetManager:
         if task not in supported_tasks:
             raise ValueError(f"Task {task} not supported for dataset {dataset_name}. Available tasks: {supported_tasks}")
         
-        self._dataset, self.config = loader.load(task)
+        self._dataset, self.config = loader.load(task, data_dir=self.dir)
 
     def get_config(self) -> Dict[str, Any]:
         return self.config
@@ -215,6 +264,85 @@ class SDatasetManager:
             dataset = self._dataset
         dataset_path = os.path.join(self.dir, path)
         dataset.save_to_disk(dataset_path)
+
+class EvaluationMetrics:
+    @staticmethod
+    def calculate_advantage(predictions, ground_truth):
+        true_positives = sum((p == 1 and g == 1) for p, g in zip(predictions, ground_truth))
+        true_negatives = sum((p == 0 and g == 0) for p, g in zip(predictions, ground_truth))
+        false_positives = sum((p == 1 and g == 0) for p, g in zip(predictions, ground_truth))
+        false_negatives = sum((p == 0 and g == 1) for p, g in zip(predictions, ground_truth))
+        
+        accuracy = (true_positives + true_negatives) / len(predictions)
+        advantage = 2 * (accuracy - 0.5)
+        
+        precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+        recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        
+        return {
+            "accuracy": accuracy,
+            "advantage": advantage,
+            "precision": precision,
+            "recall": recall,
+            "f1_score": f1_score
+        }
+    
+    @staticmethod
+    def calculate_roc_auc(ground_truth, scores):
+        fpr, tpr, _ = roc_curve(ground_truth, scores)
+        roc_auc = auc(fpr, tpr)
+        return fpr, tpr, roc_auc
+
+    @staticmethod
+    def calculate_log_roc_auc(ground_truth, scores):
+        fpr, tpr, _ = roc_curve(ground_truth, scores)
+        log_fpr = np.logspace(-8, 0, num=100)
+        log_tpr = np.interp(log_fpr, fpr, tpr)
+        log_auc = auc(log_fpr, log_tpr)
+        return log_fpr, log_tpr, log_auc
+    
+    @staticmethod
+    def get_best_threshold(ground_truth, scores):
+        # 计算ROC
+        fpr, tpr, thresholds = roc_curve(ground_truth, scores)
+
+        # 找到最佳F1分数对应的阈值
+        f1_scores = [f1_score(ground_truth, scores >= threshold) for threshold in thresholds]
+        best_threshold_index = np.argmax(f1_scores)
+        best_threshold = thresholds[best_threshold_index]
+        best_f1 = f1_scores[best_threshold_index]
+
+        return best_threshold, best_f1
+
+    @staticmethod
+    def plot_log_roc(log_fpr, log_tpr, log_auc, filename='log_roc_curve.png'):
+        plt.figure()
+        plt.plot(log_fpr, log_tpr, color='darkorange', lw=2, label=f'Log ROC curve (AUC = {log_auc:.2f})')
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        plt.xscale('log')
+        plt.xlim([1e-8, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Logarithmic Receiver Operating Characteristic (ROC) Curve')
+        plt.legend(loc="lower right")
+        plt.savefig(filename)
+        plt.close()
+
+    @staticmethod
+    def plot_roc(fpr, tpr, roc_auc, filename='roc_curve.png'):
+        plt.figure()
+        plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc:.2f})')
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver Operating Characteristic (ROC) Curve')
+        plt.legend(loc="lower right")
+        plt.savefig(filename)
+        plt.close()
 
 # def save_json(filename: str, data: Any):
 #     with open(filename, 'w') as f:

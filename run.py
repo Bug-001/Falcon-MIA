@@ -36,6 +36,11 @@ class ExperimentRunner:
         # 获取程序文件的最后修改时间
         self.last_modified_time = self._get_program_last_modified_time()
         
+        # 并行配置
+        parallel_config = self.config.get('parallel', {})
+        self.parallel_enabled = parallel_config.get('enable', False)
+        self.max_workers = parallel_config.get('max_workers', 1) if self.parallel_enabled else 1
+
     def _load_main_function(self):
         """获取程序主函数句柄"""
         module_name = self.config['program']['module']
@@ -208,97 +213,22 @@ class ExperimentRunner:
             parts.insert(prefix_index + 1, new_timestamp)
             
         return "-".join(parts)
-        
-    def run(self):
-        """运行所有实验"""
+
+    def _prepare_experiment_batch(self) -> List[Tuple[List[Dict], str]]:
+        """准备实验批次"""
+        experiment_batch = []
         for param_combo in self._generate_param_combinations():
-            # 生成实验名称
-            exp_name = self._generate_experiment_name(param_combo)
-            
-            # 检查是否需要重新运行
-            if not self._need_rerun(exp_name):
-                continue
-                
-            # 如果需要重新运行，且目录已存在，更新实验名称
-            if Path(exp_name).exists():
-                new_exp_name = self._update_experiment_name(exp_name)
-                print(f"Updating experiment name from {exp_name} to {new_exp_name}")
-                exp_name = new_exp_name
-                
-            print(f"\nRunning experiment: {exp_name}")
-            
-            # 准备每个模板的参数
-            current_params = copy.deepcopy(self.templates)
+            experiment_batch.append(param_combo)
+        return experiment_batch
 
-            # 准备参数
-            current_params = []
-            for template, params in zip(self.templates, param_combo):
-                template_copy = copy.deepcopy(template)
-                template_copy.update(params)
-                current_params.append(template_copy)
+    def _run_single_experiment(self, param_combo: List[Dict]):
+        """运行单个实验的完整流程"""
+        exp_name = self._generate_experiment_name(param_combo)
 
-            # 运行实验
-            self.main_func(*current_params, exp_name)
-            print(f"Experiment {exp_name} completed successfully")
-
-class ParallelExperimentRunner(ExperimentRunner):
-    def __init__(self, params_file: str = 'params.yaml'):
-        super().__init__(params_file)
-        self.parallel_config = self.config.get('parallel', {})
-        
-    def _get_group_key(self, params: Dict) -> Tuple:
-        """根据分组策略生成组标识"""
-        if not self.parallel_config.get('groups'):
-            return tuple()
-            
-        group_keys = []
-        for group_fields in self.parallel_config['groups']:
-            key_parts = []
-            for field in group_fields:
-                # 支持嵌套字段访问，如 "attack_chat.type"
-                value = params
-                for part in field.split('.'):
-                    value = value.get(part, '')
-                key_parts.append(str(value))
-            group_keys.append(tuple(key_parts))
-            
-        return tuple(group_keys)
-        
-    def _get_dependencies(self, group_key: Tuple) -> Set[Tuple]:
-        """获取组间依赖"""
-        deps = set()
-        if not self.parallel_config.get('dependencies'):
-            return deps
-            
-        for dep in self.parallel_config['dependencies']:
-            if str(group_key) == dep['before']:
-                deps.add(dep['after'])
-        return deps
-        
-    def _prepare_tasks(self) -> List[ExperimentTask]:
-        """准备实验任务"""
-        tasks = []
-        for param_combo in self._generate_param_combinations():
-            exp_name = self._generate_experiment_name(param_combo)
-            group_key = self._get_group_key(param_combo)
-            dependencies = self._get_dependencies(group_key)
-            
-            tasks.append(ExperimentTask(
-                exp_name=exp_name,
-                params=param_combo,
-                group_key=group_key,
-                dependencies=dependencies
-            ))
-        return tasks
-        
-    def _run_task(self, task: ExperimentTask):
-        """运行单个实验任务"""
-        exp_name = task.exp_name
-        
         # 检查是否需要重新运行
         if not self._need_rerun(exp_name):
-            return True
-            
+            return
+
         # 如果需要重新运行，且目录已存在，更新实验名称
         if Path(exp_name).exists():
             new_exp_name = self._update_experiment_name(exp_name)
@@ -307,72 +237,34 @@ class ParallelExperimentRunner(ExperimentRunner):
             
         print(f"\nRunning experiment: {exp_name}")
         
-        template_params = []
-        for template_name, params in task.params.items():
-            current_params = copy.deepcopy(self.templates[template_name])
-            for param_name, value in params.items():
-                current_params[param_name] = value
-            template_params.append(current_params)
-            
+        # 准备参数
+        current_params = []
+        for template, params in zip(self.templates, param_combo):
+            template_copy = copy.deepcopy(template)
+            template_copy.update(params)
+            current_params.append(template_copy)
+
+        # 运行实验
         try:
-            self.main_func(*template_params, exp_name)
+            self.main_func(*current_params, exp_name)
             print(f"Experiment {exp_name} completed successfully")
-            return True
         except Exception as e:
-            print(f"Experiment {exp_name} failed: {str(e)}")
-            return False
-            
+            print(f"Error in experiment {exp_name}: {str(e)}")
+            raise
+
     def run(self):
-        """运行所有实验"""
-        if not self.parallel_config.get('enable', False):
-            # 如果未启用并行，使用原来的串行方式
-            super().run()
-            return
+        """运行所有实验（支持并行）"""
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = [
+                executor.submit(self._run_single_experiment, param_combo)
+                for param_combo in self._generate_param_combinations()
+            ]
             
-        # 准备任务
-        tasks = self._prepare_tasks()
-        
-        # 按组分类任务
-        tasks_by_group = defaultdict(list)
-        for task in tasks:
-            tasks_by_group[task.group_key].append(task)
-            
-        # 创建已完成组的集合
-        completed_groups = set()
-        
-        # 获取最大并行数
-        max_workers = self.parallel_config.get('max_workers', 4)
-        
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-            while tasks_by_group:
-                # 找出可以执行的组（所有依赖都已完成）
-                ready_groups = []
-                for group_key in tasks_by_group.keys():
-                    tasks = tasks_by_group[group_key]
-                    if all(dep in completed_groups for task in tasks for dep in task.dependencies):
-                        ready_groups.append(group_key)
-                
-                if not ready_groups:
-                    raise RuntimeError("Circular dependency detected or no tasks can proceed")
-                
-                # 并行执行每个就绪组内的任务
-                futures = []
-                for group_key in ready_groups:
-                    group_tasks = tasks_by_group[group_key]
-                    for task in group_tasks:
-                        future = executor.submit(self._run_task, task)
-                        futures.append(future)
-                
-                # 等待当前批次完成
-                concurrent.futures.wait(futures)
-                
-                # 更新完成状态
-                for group_key in ready_groups:
-                    completed_groups.add(group_key)
-                    del tasks_by_group[group_key]
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
 
 def main(params):    
-    runner = ParallelExperimentRunner(params)
+    runner = ExperimentRunner(params)
     runner.run()
 
 if __name__ == "__main__":

@@ -10,37 +10,17 @@ import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
 from datasets import Dataset
+from collections import defaultdict
 
 @dataclass
 class MembershipDataCollator:
     tokenizer: AutoTokenizer
     max_length: int = 512
-
-    def encode(self, original: str, response: str) -> Dict[str, torch.Tensor]:
-        orig_encoding = self.tokenizer(
-            original,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors='pt'
-        )
-        resp_encoding = self.tokenizer(
-            response,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors='pt'
-        )
-
-        return {
-            'orig_input_ids': orig_encoding['input_ids'],
-            'orig_attention_mask': orig_encoding['attention_mask'],
-            'resp_input_ids': resp_encoding['input_ids'],
-            'resp_attention_mask': resp_encoding['attention_mask'],
-        }
     
     def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
-        # 批量处理原始文本
+        batch_size = len(features)
+        
+        # 编码原始文本
         orig_texts = [f['original_text'] for f in features]
         orig_encodings = self.tokenizer(
             orig_texts,
@@ -49,33 +29,94 @@ class MembershipDataCollator:
             max_length=self.max_length,
             return_tensors='pt'
         )
-        
-        # 批量处理response
-        responses = [f['response'] for f in features]
-        resp_encodings = self.tokenizer(
-            responses,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors='pt'
-        )
-        
-        # 准备标签和level
-        labels = torch.tensor([f['membership'] for f in features], dtype=torch.float32)
-        levels = torch.tensor([f['level'] for f in features], dtype=torch.float32)
+
+        if isinstance(features[0]['responses'], str):
+            # 批量处理response
+            responses = [f['responses'] for f in features]
+            resp_encodings = self.tokenizer(
+                responses,
+                padding=True,
+                truncation=True,
+                max_length=self.max_length,
+                return_tensors='pt'
+            )
+            
+            # 准备标签和level
+            labels = torch.tensor([f['membership'] for f in features], dtype=torch.float32)
+            levels = torch.tensor([f['levels'] for f in features], dtype=torch.float32)
+
+        else:
+            # 获取当前批次中最大的level数量
+            max_levels = max(len(f['responses']) for f in features)
+            
+            # 为每个level创建编码
+            resp_encodings = {
+                'input_ids': [],
+                'attention_mask': [],
+            }
+
+            # 将response进行编码
+            resp_list = []
+            for feature in features:
+                resp = feature['responses'] + [''] * (max_levels - len(feature['responses']))
+                resp_list.extend(resp)
+            encodings = self.tokenizer(
+                resp_list,
+                padding=True,
+                truncation=True,
+                max_length=self.max_length,
+                return_tensors='pt'
+            )
+            resp_encodings['input_ids'] = encodings['input_ids'].reshape(batch_size, max_levels, -1).flatten(1, 2)
+            resp_encodings['attention_mask'] = encodings['attention_mask'].reshape(batch_size, max_levels, -1).flatten(1, 2)
+            
+            # 准备level值和标签
+            levels = torch.zeros(batch_size, max_levels, dtype=torch.float32)
+            for i, feature in enumerate(features):
+                levels[i, :len(feature['levels'])] = torch.tensor(feature['levels'])
+            
+            labels = torch.tensor([f['membership'] for f in features], dtype=torch.float32)
         
         return {
             'orig_input_ids': orig_encodings['input_ids'],
             'orig_attention_mask': orig_encodings['attention_mask'],
             'resp_input_ids': resp_encodings['input_ids'],
             'resp_attention_mask': resp_encodings['attention_mask'],
+            'levels': levels,
             'labels': labels,
-            'levels': levels
         }
 
-class MembershipDataset(Dataset):
+class MembershipDataset():
     def __init__(self, data):
-        self.data = data
+        # 按sample_id对数据进行分组
+        grouped_data = defaultdict(list)
+        for item in data:
+            key = (item['sample_id'], item['original_text'])  # 使用sample_id和original_text作为key
+            grouped_data[key].append(item)
+        
+        # 重新组织数据
+        self.data = []
+        for (sample_id, original_text), group in grouped_data.items():
+            # 按level排序
+            group.sort(key=lambda x: x['level'])
+            
+            # 现在让不同level成为不同训练例子
+            for item in group:
+                self.data.append({
+                    'sample_id': sample_id,
+                    'original_text': original_text,
+                    'responses': item['response'],
+                    'levels': item['level'],
+                    'membership': group[0]['membership']  # membership应该对同一个sample_id是一致的
+                })
+
+            # self.data.append({
+            #     'sample_id': sample_id,
+            #     'original_text': original_text,
+            #     'responses': [item['response'] for item in group],
+            #     'levels': [item['level'] for item in group],
+            #     'membership': group[0]['membership']  # membership应该对同一个sample_id是一致的
+            # })
     
     def __len__(self):
         return len(self.data)
@@ -115,8 +156,8 @@ class MembershipDetectionModel(nn.Module):
         orig_attention_mask,
         resp_input_ids,
         resp_attention_mask,
+        levels=None,
         labels=None,
-        levels=None
     ):
         # 编码original_text
         orig_outputs = self.encoder(
@@ -125,7 +166,7 @@ class MembershipDetectionModel(nn.Module):
         )
         orig_hidden = orig_outputs.last_hidden_state
         
-        # 编码response
+        # 编码拼接后的responses
         resp_outputs = self.encoder(
             input_ids=resp_input_ids,
             attention_mask=resp_attention_mask
@@ -234,12 +275,12 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(encoder_name)
     
     # 准备数据集
-    data_path = os.path.expanduser('~/.cache/better-mia/data/')
-    with open(os.path.join(data_path, 'Qwen2.5-0.5B-Instruct--output.json'), 'r') as f:
+    data_path = "cache/data/"
+    with open(os.path.join(data_path, 'Meta-Llama-3-8B-Instruct--output.json'), 'r') as f:
         data = json.load(f)
-    train_data, eval_data = train_test_split(data, test_size=0.2, random_state=42)
-    train_dataset = Dataset.from_list(train_data)  # train_data需要自行加载
-    eval_dataset = Dataset.from_list(eval_data)    # eval_data需要自行加载
+    data_len = len(data)
+    train_dataset = MembershipDataset(data[:int(data_len*0.8)])  # train_data需要自行加载
+    eval_dataset = MembershipDataset(data[int(data_len*0.8):])    # eval_data需要自行加载
     
     # 创建数据整理器
     data_collator = MembershipDataCollator(tokenizer=tokenizer)
@@ -249,16 +290,16 @@ def main():
     
     # 设置训练参数
     training_args = TrainingArguments(
-        output_dir="cache/model/detector/qwen0.5b-test",
+        output_dir="cache/model/detector/llama3-test",
         eval_strategy="steps",
         eval_steps=100,
         save_strategy="steps",
         save_steps=100,
         save_total_limit=10,
         learning_rate=2e-5,
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
-        num_train_epochs=5,
+        per_device_train_batch_size=6,
+        per_device_eval_batch_size=6,
+        num_train_epochs=30,
         weight_decay=0.01,
         load_best_model_at_end=True,
         metric_for_best_model="f1",
@@ -279,10 +320,10 @@ def main():
     )
     
     # 开始训练
-    trainer.train(resume_from_checkpoint=True)
+    trainer.train()
     
     # 保存最终模型
-    trainer.save_model("cache/model/detector/qwen0.5b-test")
+    trainer.save_model("cache/model/detector/llama3-test")
 
 if __name__ == "__main__":
     main()
