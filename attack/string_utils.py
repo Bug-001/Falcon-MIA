@@ -13,6 +13,26 @@ import spacy
 from collections import defaultdict, Counter
 
 class ObfuscationTechniques:
+    _nlp_initialized = False
+    nlp = None
+    stop_words = None
+
+    @classmethod
+    def _load_nlp_resources(cls, nlp_dataset):
+        try:
+            cls.nlp = spacy.load(nlp_dataset)
+        except OSError:
+            print("Downloading English language model...")
+            from subprocess import check_call
+            check_call(["python", "-m", "spacy", "download", nlp_dataset])
+            cls.nlp = spacy.load(nlp_dataset)
+        
+        try:
+            cls.stop_words = set(stopwords.words('english'))
+        except LookupError:
+            nltk.download('stopwords')
+            cls.stop_words = set(stopwords.words('english'))
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.technique = config.get('technique', 'character_swap')
@@ -21,7 +41,9 @@ class ObfuscationTechniques:
         self.important_pos = ['NOUN', 'VERB', 'ADJ', "PRON"]
         
         # Load NLP models and resources
-        self._load_nlp_resources()
+        if not ObfuscationTechniques._nlp_initialized:
+            ObfuscationTechniques._load_nlp_resources(self.nlp_dataset)
+            ObfuscationTechniques._nlp_initialized = True
         
         self.sentence_model = SentenceTransformer('distilbert-base-nli-mean-tokens')
         self.similarity_threshold = config.get('similarity_threshold', 0.7)
@@ -69,21 +91,6 @@ class ObfuscationTechniques:
             'z': ['ż', 'ź', 'ž', 'ẑ', 'ẓ', 'ẕ', 'ƶ', 'ȥ']
         }
 
-    def _load_nlp_resources(self):
-        try:
-            self.nlp = spacy.load(self.nlp_dataset)
-        except OSError:
-            print("Downloading English language model...")
-            from subprocess import check_call
-            check_call(["python", "-m", "spacy", "download", self.nlp_dataset])
-            self.nlp = spacy.load(self.nlp_dataset)
-        
-        try:
-            self.stop_words = set(stopwords.words('english'))
-        except LookupError:
-            nltk.download('stopwords')
-            self.stop_words = set(stopwords.words('english'))
-
     def _initialize_leet_dict(self):
         return {
             'a': ['4', '@', '/-\\'], 'b': ['8', '|3', '|:'],
@@ -102,7 +109,7 @@ class ObfuscationTechniques:
         }
 
     def obfuscate(self, text: str, level: float) -> str:
-        doc = self.nlp(text)
+        doc = ObfuscationTechniques.nlp(text)
         words = [token.text for token in doc]
         important_indices = [i for i, token in enumerate(doc) if token.ent_type_ or token.pos_ in self.important_pos]
         
@@ -294,7 +301,7 @@ class StringHelper:
             tokens = word_tokenize(text)
             # Remove stopwords and punctuation
             tokens = [token.translate(str.maketrans('', '', string.punctuation)) 
-                     for token in tokens if token not in self.stop_words]
+                     for token in tokens if token not in ObfuscationTechniques.stop_words]
             return [t for t in tokens if t]
             
         elif mode == 'semantic':

@@ -111,7 +111,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.logger.new_table(results_table)
         self.logger.new_table(details_table)
 
-        train_length = self.attack_config['train_attack']
+        train_length = self.train_attack
         data_loader = self.data_loader.train() + self.data_loader.test()
         for i, (icl_samples, attack_sample, is_member) in enumerate(tqdm(data_loader)):
             # 为主表格创建新行
@@ -173,7 +173,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         # 检查模型是否已经训练好
         classfier_path = os.path.join(self.detector_dir, "model.safetensors")
         if not os.path.exists(classfier_path):
-            num_train = self.attack_config['train_attack']
+            num_train = self.train_attack
             train_data = self.similarities_data[:num_train]
             test_data = self.similarities_data[num_train:]
             trainer = Trainer(
@@ -230,7 +230,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.logger.new_table(predictions_table)
 
         # test_data对应于similariteis_data的最后若干数据，直接对应即可
-        num_train = self.attack_config['train_attack']
+        num_train = self.train_attack
         test_data = self.logger.get_table("dataset_overview").iloc[num_train:]
         assert test_data['type'].tolist() == ['test'] * len(test_data), "Test data type is not 'test'"
         level_info = self.logger.get_table("level_details").iloc[num_train:]

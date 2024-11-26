@@ -113,11 +113,18 @@ class ICLAttackStrategy(ABC):
         train_attack = self.attack_config.get('train_attack', 100)
         test_attack = self.attack_config.get('test_attack', 100)
         num_demo = data_config.get('num_demonstrations', 6)
+        # 确认数据集的数量，要求validation集的数据量不超过总数据量的3/4（左右）
+        total_size = self.sdm.get_total_size()
+        if train_attack + test_attack > total_size * 3 // 4:
+            train_attack = int(train_attack / (train_attack + test_attack) * total_size * 3 // 4)
+            test_attack = total_size * 3 // 4 - train_attack
+        self.train_attack = train_attack
+        self.test_attack = test_attack
+        num_valid = train_attack + test_attack
         num_train = train_attack * num_demo
         num_test = test_attack * num_demo
-        num_valid = train_attack + test_attack
         split = [num_train, num_valid, num_test]
-        dataset = self.sdm.crop_dataset(split=split, seed=self.random_seed)
+        dataset = self.sdm.crop_dataset(split=split, seed=self.random_seed, prioritized_splits=['validation'])
         default_config = self.sdm.get_config()
 
         # 合并默认配置和用户配置

@@ -12,7 +12,7 @@ import pandas as pd
 import torch
 from datetime import datetime
 from colorama import Fore, Style, init
-from datasets import Dataset, DatasetDict
+from datasets import Dataset, DatasetDict, concatenate_datasets
 
 from data import DATASET_LOADERS, BaseDataLoader
 
@@ -220,7 +220,29 @@ class SDatasetManager:
         loader: BaseDataLoader = DATASET_LOADERS[self.dataset_name]()
         return loader.get_supported_tasks()
 
-    def crop_dataset(self, num=-1, split=[0.8,0.1,0.1], seed=42):
+    def _repeat_dataset_to_size(self, dataset, required_size):
+        """将数据集重复到略大于所需大小，然后截取"""
+        current_size = len(dataset)
+        # 计算需要重复的次数，向上取整
+        repeat_times = (required_size + current_size - 1) // current_size
+        # 重复数据集
+        repeated_data = concatenate_datasets([dataset] * repeat_times)
+        # 截取所需大小
+        ret_data = repeated_data.select(range(required_size))
+        assert len(ret_data) == required_size
+        return ret_data
+
+    def get_total_size(self):
+        return sum(self._dataset.num_rows.values())
+
+    def crop_dataset(self, num=-1, split=[0.8,0.1,0.1], seed=42, 
+                    prioritized_splits=['train', 'validation', 'test'], strict=False):
+        # 1. 参数验证
+        valid_splits = {'train', 'validation', 'test'}
+        if not all(split in valid_splits for split in prioritized_splits):
+            raise ValueError("prioritized_splits can only contain 'train', 'validation', or 'test'")
+        
+        # 2. 计算初始需求量
         if isinstance(split[0], float):
             if sum(split) != 1:
                 raise ValueError("Split ratios must sum to 1")
@@ -231,32 +253,113 @@ class SDatasetManager:
             test_num = num - train_num - val_num
         elif isinstance(split[0], int):
             train_num, val_num, test_num = split
-
-        dataset: DatasetDict = self._dataset.copy()
-
-        train_data = dataset['train'].shuffle(seed=seed)
-        train_dataset = train_data.select(range(train_num))
-
-        if 'validation' in dataset.keys():
-            val_data = dataset['validation'].shuffle(seed=seed)
-            val_dataset = val_data.select(range(val_num))
-        else:
-            val_dataset = train_data.select(range(train_num, train_num + val_num))
-
-        if 'test' in dataset.keys():
-            test_data = dataset['test'].shuffle(seed=seed)
-            test_dataset = test_data.select(range(test_num))
-        else:
-            test_dataset = train_data.select(range(train_num + val_num, train_num + val_num + test_num))
         
-        # 创建DatasetDict
-        dataset_dict = DatasetDict({
-            'train': train_dataset,
-            'validation': val_dataset,
-            'test': test_dataset
-        })
+        initial_sizes = {
+            'train': train_num,
+            'validation': val_num,
+            'test': test_num
+        }
         
-        return dataset_dict
+        # 3. 准备数据源
+        if strict:
+            # strict模式：每个split只能从对应名称的数据集获取
+            available_data = {k: v for k, v in self._dataset.items()}
+        else:
+            # non-strict模式：合并所有数据
+            all_data = []
+            for split_name in ['train', 'validation', 'test']:
+                if split_name in self._dataset:
+                    all_data.append(self._dataset[split_name])
+            combined_data = concatenate_datasets(all_data).shuffle(seed=seed)
+            available_data = {'combined': combined_data}
+        
+        # 4. 计算最终分配量
+        if strict:
+            # strict模式：直接检查每个优先分割的数据是否足够
+            for split_name in prioritized_splits:
+                if split_name not in available_data:
+                    raise ValueError(f"Split '{split_name}' required but not found in dataset")
+                if len(available_data[split_name]) < initial_sizes[split_name]:
+                    raise ValueError(
+                        f"Insufficient data for prioritized split '{split_name}'. "
+                        f"Required: {initial_sizes[split_name]}, "
+                        f"Available: {len(available_data[split_name])}"
+                    )
+            final_sizes = initial_sizes
+        else:
+            # non-strict模式：计算实际分配量
+            total_available = len(available_data['combined'])
+            
+            # 首先分配优先splits
+            final_sizes = {}
+            remaining_data = total_available
+            for split_name in prioritized_splits:
+                required = initial_sizes[split_name]
+                if remaining_data < required:
+                    raise ValueError(
+                        f"Insufficient data for prioritized split '{split_name}'. "
+                        f"Required: {required}, Available: {remaining_data}"
+                    )
+                final_sizes[split_name] = required
+                remaining_data -= required
+            
+            # 计算非优先splits的总需求量和比例
+            non_priority_splits = [s for s in valid_splits if s not in prioritized_splits]
+            non_priority_total = sum(initial_sizes[s] for s in non_priority_splits)
+            
+            # 按比例分配剩余数据给非优先splits
+            if non_priority_total > 0:  # 避免除以0
+                if remaining_data < non_priority_total:
+                    for split_name in non_priority_splits:
+                        ratio = initial_sizes[split_name] / non_priority_total
+                        final_sizes[split_name] = int(remaining_data * ratio)
+                        # 处理最后一个split的舍入误差
+                        if split_name == non_priority_splits[-1]:
+                            final_sizes[split_name] = remaining_data - sum(
+                                final_sizes.get(s, 0) for s in non_priority_splits[:-1]
+                            )
+                else:
+                    for split_name in non_priority_splits:
+                        final_sizes[split_name] = initial_sizes[split_name]
+        
+        # 5. 分配数据
+        result_splits = {}
+        if not strict:
+            current_idx = 0
+        
+        for split_name in ['train', 'validation', 'test']:
+            supplied_size = final_sizes[split_name]
+            required_size = initial_sizes[split_name]
+            
+            if split_name in prioritized_splits:
+                assert required_size == supplied_size
+                if strict:
+                    # strict模式：从对应split中获取数据
+                    data = available_data[split_name].shuffle(seed=seed)
+                    result_splits[split_name] = data.select(range(required_size))
+                else:
+                    # non-strict模式：从combined数据中顺序获取
+                    result_splits[split_name] = available_data['combined'].select(
+                        range(current_idx, current_idx + required_size)
+                    )
+                    current_idx += required_size
+            else:
+                # 非优先分割：使用数据重复策略
+                if strict and split_name in available_data:
+                    source_data = available_data[split_name].shuffle(seed=seed)
+                else:
+                    source_data = (available_data['combined']
+                                .select(range(current_idx, current_idx + supplied_size)))
+                    current_idx += supplied_size
+                
+                if supplied_size < required_size:
+                    result_splits[split_name] = self._repeat_dataset_to_size(
+                        source_data, required_size
+                    )
+                else:
+                    result_splits[split_name] = source_data.select(range(required_size))
+        
+        return DatasetDict(result_splits)
     
     def save_dataset(self, path: str, dataset: DatasetDict = None) -> None:
         """保存数据集到文件"""
