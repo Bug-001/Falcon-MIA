@@ -7,6 +7,15 @@ import torch
 from torch import nn
 from transformers import Trainer, TrainingArguments
 
+from captum.attr import (
+    IntegratedGradients,
+    DeepLift,
+    FeatureAblation,
+    Occlusion
+)
+import seaborn as sns
+from itertools import product
+
 @dataclass
 class ObfuscationDataCollator:
     def __call__(self, features: List[Tuple[Dict, bool]]) -> Dict[str, torch.Tensor]:
@@ -67,6 +76,148 @@ class ObfuscationModel(nn.Module):
             loss = loss_fct(logits.view(-1), labels.view(-1))
             
         return {'loss': loss, 'logits': logits} if loss is not None else {'logits': logits}
+
+def create_importance_heatmap(importance_scores, feature_names):
+    """
+    将feature_importance的结果转换为热力图
+    
+    参数:
+    - importance_scores: analyze_feature_importance返回的字典
+        格式为 {
+            'integrated_gradients': tensor(...),
+            'deeplift': tensor(...),
+            'ablation': tensor(...)
+        }
+    - feature_names: 特征名称列表，每个元素是(level, similarity)格式的元组
+    """
+    # 从元组中提取所有唯一的level和similarity值
+    levels = sorted(list(set(level for level, _ in feature_names)))
+    similarities_set = set(sim for _, sim in feature_names)
+    similarities_set.remove('level')
+    similarities = sorted(list(similarities_set))
+    similarities.insert(0, 'level')
+    
+    # 创建图形
+    plt.figure(figsize=(20, 5))
+    
+    # 为每种方法创建一个子图
+    for idx, (method_name, scores) in enumerate(importance_scores.items(), 1):
+        # 创建热力图数据矩阵
+        heatmap_data = np.zeros((len(levels), len(similarities)))
+        
+        # 填充数据
+        for feature_idx, (level, sim) in enumerate(feature_names):
+            i = levels.index(level)
+            j = similarities.index(sim)
+            heatmap_data[i, j] = scores[feature_idx].item()
+        
+        # 创建子图
+        plt.subplot(1, 3, idx)
+        sns.heatmap(
+            heatmap_data,
+            xticklabels=similarities,
+            yticklabels=levels,
+            annot=True,
+            fmt='.3f',
+            cmap='YlOrRd',
+            cbar_kws={'label': 'Importance Score'},
+        )
+        
+        plt.title(f'{method_name.replace("_", " ").title()}')
+        plt.xlabel('Similarity')
+        plt.ylabel('Level')
+    
+    plt.tight_layout()
+    plt.savefig('feature_importance_heatmap.png')
+    
+    # 返回数据矩阵，方便后续分析
+    return {
+        method: {
+            'matrix': heatmap_data,
+            'levels': levels,
+            'similarities': similarities
+        } for method, heatmap_data in zip(
+            importance_scores.keys(),
+            [heatmap_data]  # 这里需要存储每个方法的热力图数据
+        )
+    }
+
+def analyze_feature_importance(model, input_tensor, feature_names=None):
+    # 确保模型处于评估模式
+    model.eval()
+    
+    # 如果没有提供特征名称，创建默认的
+    if feature_names is None:
+        feature_names = [f'Feature_{i}' for i in range(40)]
+    
+    # 1. Integrated Gradients分析
+    ig = IntegratedGradients(model)
+    ig_attr = ig.attribute(input_tensor, target=0)  # target=0 因为是1维输出
+    
+    # 2. DeepLift分析
+    dl = DeepLift(model)
+    dl_attr = dl.attribute(input_tensor, target=0)
+    
+    # 3. Feature Ablation分析
+    ablator = FeatureAblation(model)
+    abl_attr = ablator.attribute(input_tensor, target=0)
+    
+    # 计算每个特征的重要性分数（取绝对值的平均）
+    importance_scores = {
+        'integrated_gradients': torch.abs(ig_attr).mean(dim=0),
+        'deeplift': torch.abs(dl_attr).mean(dim=0),
+        'ablation': torch.abs(abl_attr).mean(dim=0)
+    }
+    
+    return importance_scores
+
+def analyze_and_visualize(model, input_data, feature_names):
+    """
+    完整的分析和可视化流程
+    
+    参数:
+    - model: PyTorch模型
+    - input_data: 输入数据张量
+    - feature_names: 包含(level, similarity)元组的列表
+    """
+    if not isinstance(input_data, torch.Tensor):
+        input_data = torch.FloatTensor(input_data)
+    
+    # 如果是单个样本，添加batch维度
+    if len(input_data.shape) == 1:
+        input_data = input_data.unsqueeze(0)
+
+    # 1. 获取特征重要性分数
+    importance_scores = analyze_feature_importance(
+        model, 
+        input_data, 
+        feature_names
+    )
+    
+    # 2. 创建热力图并获取数据
+    heatmap_data = create_importance_heatmap(
+        importance_scores, 
+        feature_names
+    )
+    
+    # 3. 添加统计分析
+    for method, data in heatmap_data.items():
+        matrix = data['matrix']
+        print(f"\nStatistics for {method}:")
+        print(f"Max importance: {np.max(matrix):.3f}")
+        print(f"Mean importance: {np.mean(matrix):.3f}")
+        print(f"Most important level: {data['levels'][np.mean(matrix, axis=1).argmax()]}")
+        print(f"Most important similarity: {data['similarities'][np.mean(matrix, axis=0).argmax()]}")
+
+    return heatmap_data
+
+class HFModelWrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input):
+        return self.model(input)['logits']
 
 class ObfuscationAttack(ICLAttackStrategy):
     def __init__(self, attack_config: Dict[str, Any]):
@@ -223,6 +374,66 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.logger.add("Similarities", similarities, table, show=False)
         self.logger.add("Prediction", prediction, table, show=False)
 
+    def analyze_feature_importance(self, model, input_features, levels, similarity_types):
+        # 确保模型处于评估模式
+        model.eval()
+        
+        # 1. Integrated Gradients分析
+        ig = IntegratedGradients(model)
+        ig_attr = ig.attribute(input_features, target=0)  # target=0 因为是1维输出
+        
+        # 2. DeepLift分析
+        dl = DeepLift(model)
+        dl_attr = dl.attribute(input_features, target=0)
+        
+        # 3. Feature Ablation分析
+        ablator = FeatureAblation(model)
+        abl_attr = ablator.attribute(input_features, target=0)
+        
+        # 计算每个特征的重要性分数（取绝对值的平均）
+        importance_scores = {
+            'integrated_gradients': torch.abs(ig_attr).mean(dim=0),
+            'deeplift': torch.abs(dl_attr).mean(dim=0),
+            'ablation': torch.abs(abl_attr).mean(dim=0)
+        }
+
+        # 创建图形
+        plt.figure(figsize=(20, 5))
+        
+        # 为每种方法创建一个子图
+        for idx, (method_name, scores) in enumerate(importance_scores.items(), 1):
+            # 创建热力图数据矩阵
+            heatmap_data = np.zeros((len(levels), len(similarity_types)))
+            
+            # 填充数据
+            for feature_idx, (level, sim) in enumerate(product(levels, similarity_types)):
+                i = levels.index(level)
+                j = similarity_types.index(sim)
+                heatmap_data[i, j] = scores[feature_idx].item()
+            
+            # XXX: 这里暂时截取掉level的第一列
+            similarity_types = similarity_types[1:]
+            heatmap_data = heatmap_data[:, 1:]
+
+            # 创建子图
+            plt.subplot(1, 3, idx)
+            sns.heatmap(
+                heatmap_data,
+                xticklabels=similarity_types,
+                yticklabels=levels,
+                annot=True,
+                fmt='.3f',
+                cmap='YlOrRd',
+                cbar_kws={'label': 'Importance Score'},
+            )
+            
+            plt.title(f'{method_name.replace("_", " ").title()}')
+            plt.xlabel('Similarity')
+            plt.ylabel('Level')
+        
+        plt.tight_layout()
+        self.logger.savefig('feature_importance_heatmap.png')
+
     def evaluate(self):
         mispredict_table = "mispredicted_results"
         predictions_table = "predictions"
@@ -271,6 +482,15 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.logger.new_table("metrics")
         for key, value in metrics.items():
             self.logger.add(key, value, "metrics")
+
+        # 使用特征技术，分析混淆级别和相似度带来的影响
+        # XXX: Very confusing code...
+        self.analyze_feature_importance(
+            HFModelWrapper(self.classifier),
+            ObfuscationDataCollator()(self.similarities_data)['features'].to('cuda'),
+            list(self.similarities_data[0][0].keys()),
+            ['level'] + sorted(list(self.similarities_data[0][0].values())[0].keys()),
+        )
 
         # 保存所有结果
         self.logger.save()

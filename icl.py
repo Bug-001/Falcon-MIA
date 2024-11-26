@@ -239,7 +239,8 @@ def load_yaml_config(config_path: str) -> Dict[str, Any]:
         return yaml.safe_load(file)
 
 def main(data_config, attack_config, query_config, name='unnamed_experiment'):
-    attack_config['name'] = name
+    if 'name' not in attack_config:
+        attack_config['name'] = name
     attack_strategy = ICLAttackStrategy.create(attack_config)
     if attack_strategy is None:
         raise ValueError(f"Attack type {attack_config['type']} is not supported.")
