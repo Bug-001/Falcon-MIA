@@ -1,9 +1,19 @@
+from .common import *
+
+from attack import ICLAttackStrategy
+
+from llm.query import ModelInterface
+from utils import SLogger, SDatasetManager
+
+import openai
+
 class BrainwashAttack(ICLAttackStrategy):
     def __init__(self, attack_config: Dict[str, Any]):
         super().__init__(attack_config)
         self.max_misleadings = attack_config.get('max_misleadings', 10)
         self.threshold = attack_config.get('brainwash_threshold', 5)
         self.num_wrong_labels = attack_config.get('num_wrong_labels', 3)  # 新增参数
+        self.logger.new_table("brainwash-attack_results")  # Initialize table at start
 
     def brainwashed(self, response: str, wrong_label: str) -> bool:
         # 获取所有可能的标签
@@ -37,39 +47,41 @@ class BrainwashAttack(ICLAttackStrategy):
                 # XXX
                 "content": self.user_prompt.format(input=attack_sample["input"]) + " Type:"
             }]
-            return model.query(query_prompt, "Brainwash Attack")[0]
+            response = model.query(query_prompt, "Brainwash Attack")[0].split()[0]
+            return response
         
-        left, right = 0, self.max_misleadings
-        mid = self.max_misleadings
+        max_misleadings = self.max_misleadings
+        left, right = 0, max_misleadings
+        mid = max_misleadings
         while left < right:
             old_mid = mid
-            response = generate_prompt_and_request(mid)
-            if self.brainwashed(response, wrong_label):
-                right = mid
-            else:
-                left = mid + 1
+            try:
+                response = generate_prompt_and_request(mid)
+                brainwashed = self.brainwashed(response, wrong_label)
+                if brainwashed:
+                    right = mid
+                else:
+                    left = mid + 1
+            except openai.BadRequestError:
+                right = mid - 1
             mid = (left + right) // 2
-        final_response = generate_prompt_and_request(old_mid)
-        if old_mid != self.max_misleadings:
-            while not self.brainwashed(final_response, wrong_label):
-                old_mid += 1
-                final_response = generate_prompt_and_request(old_mid)
-            logger.info(f"Brainwashed to \"{wrong_label}\" in {old_mid} turns: {final_response}")
-        else:
-            logger.info(f"Failed to brainwash to \"{wrong_label}\" in {old_mid} turns: {final_response}")
         return old_mid
 
     @ICLAttackStrategy.cache_results
     def attack(self, model: ModelInterface):
-        for icl_samples, attack_sample, is_member in tqdm(self.data_loader.test()):
+        self.label_translation = self.sdm.get_config()['label_map']
+
+        data_loader = self.data_loader.train() + self.data_loader.test()
+        for icl_samples, attack_sample, is_member in tqdm(data_loader):
+            self.logger.new_row("brainwash-attack_results")
             icl_prompt = self.generate_icl_prompt(icl_samples)
             
             correct_label = attack_sample["output"]
             wrong_labels = [label for label in self.label_translation.values() if label != correct_label]
             selected_wrong_labels = random.sample(wrong_labels, min(self.num_wrong_labels, len(wrong_labels)))
 
-            logger.info(f"Sample: {attack_sample['input']}")
-            logger.info(f"Correct label: {correct_label}")
+            self.logger.info(f"Sample: {attack_sample['input']}")
+            self.logger.info(f"Correct label: {correct_label}")
 
             iterations = []
             for wrong_label in selected_wrong_labels:
@@ -79,11 +91,17 @@ class BrainwashAttack(ICLAttackStrategy):
             avg_iterations = np.mean(iterations)
             pred_member = avg_iterations >= self.threshold
             self.results.append((pred_member, is_member, avg_iterations))
-            
-            # 添加日志输出
-            logger.info(f"Iterations: {iterations}")
-            logger.info(f"Is member: {is_member}, Predicted member: {pred_member}")
-            logger.info("-" * 50)
+
+            self.logger.add("Sample", attack_sample["input"])
+            self.logger.add("Correct Label", correct_label)
+            self.logger.add("Wrong Labels", selected_wrong_labels)
+            self.logger.add("Iterations", iterations)
+            self.logger.add("Average Iterations", avg_iterations)
+            self.logger.add("Is member", is_member)
+            self.logger.add("Predicted member", pred_member)
+            self.logger.info("-" * 50)
+        
+        self.logger.save()
 
     def evaluate(self) -> Dict[str, float]:
         predictions = [bool(pred) for pred, _, _ in self.results]
@@ -112,9 +130,11 @@ class BrainwashAttack(ICLAttackStrategy):
         }
 
         # 绘制ROC和log ROC曲线
-        if self.attack_config.get('plot_roc', False):
-            EvaluationMetrics.plot_roc(fpr, tpr, roc_auc, f'roc_curve_{self.__class__.__name__}.png')
-        if self.attack_config.get('plot_log_roc', False):
-            EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, f'log_roc_curve_{self.__class__.__name__}.png')
+        # if self.attack_config.get('plot_roc', False):
+        #     EvaluationMetrics.plot_roc(fpr, tpr, roc_auc, f'roc_curve_{self.__class__.__name__}.png')
+        # if self.attack_config.get('plot_log_roc', False):
+        #     EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, f'log_roc_curve_{self.__class__.__name__}.png')
+
+        self.logger.save_json('metrics.json', metrics)
 
         return metrics

@@ -12,38 +12,29 @@ from scipy.spatial.distance import cosine
 import spacy
 from collections import defaultdict, Counter
 
+_initiated = False
+if not _initiated:
+    try:
+        g_nlp = spacy.load('en_core_web_sm')
+    except OSError:
+        print("Downloading English language model...")
+        from subprocess import check_call
+        check_call(["python", "-m", "spacy", "download", 'en_core_web_sm'])
+        g_nlp = spacy.load('en_core_web_sm')
+    
+    try:
+        g_stop_words = set(stopwords.words('english'))
+    except LookupError:
+        nltk.download('stopwords')
+        g_stop_words = set(stopwords.words('english'))
+    
+    _initiated = True
+
 class ObfuscationTechniques:
-    _nlp_initialized = False
-    nlp = None
-    stop_words = None
-
-    @classmethod
-    def _load_nlp_resources(cls, nlp_dataset):
-        try:
-            cls.nlp = spacy.load(nlp_dataset)
-        except OSError:
-            print("Downloading English language model...")
-            from subprocess import check_call
-            check_call(["python", "-m", "spacy", "download", nlp_dataset])
-            cls.nlp = spacy.load(nlp_dataset)
-        
-        try:
-            cls.stop_words = set(stopwords.words('english'))
-        except LookupError:
-            nltk.download('stopwords')
-            cls.stop_words = set(stopwords.words('english'))
-
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.technique = config.get('technique', 'character_swap')
-        self.nltk_downloaded = False
-        self.nlp_dataset = config.get('nlp_dataset', 'en_core_web_sm')
         self.important_pos = ['NOUN', 'VERB', 'ADJ', "PRON"]
-        
-        # Load NLP models and resources
-        if not ObfuscationTechniques._nlp_initialized:
-            ObfuscationTechniques._load_nlp_resources(self.nlp_dataset)
-            ObfuscationTechniques._nlp_initialized = True
         
         self.sentence_model = SentenceTransformer('distilbert-base-nli-mean-tokens')
         self.similarity_threshold = config.get('similarity_threshold', 0.7)
@@ -109,7 +100,7 @@ class ObfuscationTechniques:
         }
 
     def obfuscate(self, text: str, level: float) -> str:
-        doc = ObfuscationTechniques.nlp(text)
+        doc = g_nlp(text)
         words = [token.text for token in doc]
         important_indices = [i for i, token in enumerate(doc) if token.ent_type_ or token.pos_ in self.important_pos]
         
@@ -200,9 +191,12 @@ class ObfuscationTechniques:
         return ' '.join(words_list)
 
     def _invisible_char_insertion(self, words: List[str], important_indices: Set[int], level: float) -> str:
-        total_chars = sum(len(word) for word in words if word.isalpha())
-        chars_to_insert_important = int(total_chars * level)
-        chars_to_insert_non_important = int(total_chars * level / 2)
+        # Calculate characters to change for important and non-important words
+        important_chars = sum(len(word) for i, word in enumerate(words) if i in important_indices and word.isalpha())
+        non_important_chars = sum(len(word) for i, word in enumerate(words) if i not in important_indices and word.isalpha())
+        
+        chars_to_insert_important = int(important_chars * level)
+        chars_to_insert_non_important = int(non_important_chars * level / 2)
 
         important_positions = self._select_chars_to_obfuscate(words, chars_to_insert_important, important_indices, allow_repeat=True)
         non_important_positions = self._select_chars_to_obfuscate(words, chars_to_insert_non_important, set(range(len(words))) - important_indices, allow_repeat=True)
@@ -219,10 +213,13 @@ class ObfuscationTechniques:
         return ' '.join(words_list)
 
     def _similar_char_substitution(self, words: List[str], important_indices: Set[int], level: float) -> str:
-        total_chars = sum(len(word) for word in words if word.isalpha())
-        chars_to_change_important = int(total_chars * level)
-        chars_to_change_non_important = int(total_chars * level / 2)
-
+        # Calculate characters to change for important and non-important words
+        important_chars = sum(len(word) for i, word in enumerate(words) if i in important_indices and word.isalpha())
+        non_important_chars = sum(len(word) for i, word in enumerate(words) if i not in important_indices and word.isalpha())
+        
+        chars_to_change_important = int(important_chars * level)
+        chars_to_change_non_important = int(non_important_chars * level / 2)
+        
         important_chars_to_obfuscate = self._select_chars_to_obfuscate(words, chars_to_change_important, important_indices)
         non_important_chars_to_obfuscate = self._select_chars_to_obfuscate(words, chars_to_change_non_important, set(range(len(words))) - important_indices)
 
@@ -255,23 +252,9 @@ class ObfuscationTechniques:
 
 class StringHelper:
     def __init__(self):
-        self._stop_words = None
         self._sentence_model = None
         # self._model_name = 'distilbert-base-nli-mean-tokens'
         self._model_name = 'paraphrase-MiniLM-L6-v2'
-        
-    @property
-    def stop_words(self):
-        """Lazy loading of NLTK stop words."""
-        if self._stop_words is None:
-            try:
-                import nltk
-                from nltk.corpus import stopwords
-                self._stop_words = set(stopwords.words('english'))
-            except LookupError as e:
-                print(f"Error loading NLTK resources: {e}")
-                self._stop_words = set()
-        return self._stop_words
         
     @property
     def sentence_model(self):
@@ -301,7 +284,7 @@ class StringHelper:
             tokens = word_tokenize(text)
             # Remove stopwords and punctuation
             tokens = [token.translate(str.maketrans('', '', string.punctuation)) 
-                     for token in tokens if token not in ObfuscationTechniques.stop_words]
+                     for token in tokens if token not in g_stop_words]
             return [t for t in tokens if t]
             
         elif mode == 'semantic':

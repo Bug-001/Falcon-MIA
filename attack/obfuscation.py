@@ -400,6 +400,9 @@ class ObfuscationAttack(ICLAttackStrategy):
         # 创建图形
         plt.figure(figsize=(20, 5))
         
+        # XXX: 这里暂时截取掉level的第一列
+        similarity_types = similarity_types[1:]
+
         # 为每种方法创建一个子图
         for idx, (method_name, scores) in enumerate(importance_scores.items(), 1):
             # 创建热力图数据矩阵
@@ -410,10 +413,6 @@ class ObfuscationAttack(ICLAttackStrategy):
                 i = levels.index(level)
                 j = similarity_types.index(sim)
                 heatmap_data[i, j] = scores[feature_idx].item()
-            
-            # XXX: 这里暂时截取掉level的第一列
-            similarity_types = similarity_types[1:]
-            heatmap_data = heatmap_data[:, 1:]
 
             # 创建子图
             plt.subplot(1, 3, idx)
@@ -421,7 +420,7 @@ class ObfuscationAttack(ICLAttackStrategy):
                 heatmap_data,
                 xticklabels=similarity_types,
                 yticklabels=levels,
-                annot=True,
+                annot=False,
                 fmt='.3f',
                 cmap='YlOrRd',
                 cbar_kws={'label': 'Importance Score'},

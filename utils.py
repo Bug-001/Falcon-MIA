@@ -147,6 +147,12 @@ class SLogger:
         with open(filename, 'wb') as f:
             pickle.dump(data, f)
 
+    def save_json(self, filename: str, data: Any) -> None:
+        """保存数据到JSON文件"""
+        filename = os.path.join(self.output_dir, filename)
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=4, cls=NumpyEncoder)
+
     def save_model(self, model, filename: str) -> None:
         """保存PyTorch模型到文件"""
         filename = os.path.join(self.output_dir, filename)

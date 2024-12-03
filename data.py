@@ -89,6 +89,7 @@ class TRECLoader(BaseDataLoader):
             "task": "default",
             "task_type": "classification",
             "metrics": ["accuracy"],
+            "label_map": label_map,
             "num_classes": 6,
             "prompt_template": {
                 "system": "Classify the following question based on whether its answer type is a Number, Location, Person, Description, Entity, or Abbreviation.",

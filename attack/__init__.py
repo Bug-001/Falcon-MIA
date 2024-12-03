@@ -232,7 +232,7 @@ class ICLAttackStrategy(ABC):
         # from .inquiry import InquiryAttack
         # from .repeat import RepeatAttack
         # from .brainwash import BrainwashAttack
-        # from .hybrid import HybridAttack
+        from .hybrid import HybridAttack
         from .obfuscation import ObfuscationAttack
 
         attack_type = attack_config['type']
@@ -244,9 +244,9 @@ class ICLAttackStrategy(ABC):
         #     return RepeatAttack(attack_config)
         # elif attack_type == 'Brainwash':
         #     return BrainwashAttack(attack_config)
-        # elif attack_type == 'Hybrid':
-        #     return HybridAttack(attack_config)
-        if attack_type == "Obsfucation":
+        if attack_type == 'Hybrid':
+            return HybridAttack(attack_config)
+        elif attack_type == "Obfuscation":
             return ObfuscationAttack(attack_config)
         else:
             return None

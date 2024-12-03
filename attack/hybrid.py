@@ -1,149 +1,253 @@
-class HybridModelTrainer(BaseTrainer):
-    def __init__(self, config: Dict[str, Any], logger):
-        super().__init__(config, logger)
-        self.hidden_size = config.get('hidden_size', 10)
-    
-    def get_model(self) -> nn.Module:
-        class HybridModel(nn.Module):
-            def __init__(self, hidden_size: int):
-                super().__init__()
-                self.fc1 = nn.Linear(2, hidden_size)
-                self.fc2 = nn.Linear(hidden_size, 1)
-                self.relu = nn.ReLU()
-                self.sigmoid = nn.Sigmoid()
+from .common import *
 
-            def forward(self, x):
-                x = self.relu(self.fc1(x))
-                x = self.sigmoid(self.fc2(x))
-                return x
-                
-        return HybridModel(self.hidden_size)
-    
-    def get_criterion(self) -> nn.Module:
-        return nn.BCELoss()
+from attack import ICLAttackStrategy
+from attack.brainwash import BrainwashAttack
+from attack.repeat import RepeatAttack
+
+from llm.query import ModelInterface
+from utils import SLogger, SDatasetManager
+
+import torch
+import torch.nn as nn
+from sklearn.preprocessing import MinMaxScaler
+from transformers import Trainer, TrainingArguments
+
+from sklearn.model_selection import train_test_split
+
+@dataclass
+class HybridDataCollator:
+    def __init__(self, scalers=None):
+        self.scalers = scalers
+        
+    def __call__(self, features: List[Tuple[float, float, bool]]) -> Dict[str, torch.Tensor]:
+        # 分离特征和标签
+        brainwash_scores = []
+        repeat_scores = []
+        labels = []
+        
+        for brainwash_score, repeat_score, is_member in features:
+            brainwash_scores.append(brainwash_score)
+            repeat_scores.append(repeat_score)
+            labels.append(float(is_member))
+        
+        # 归一化处理（如果scaler不为None）
+        if self.scalers is not None:
+            brainwash_scores = self.scalers[0].transform(np.array(brainwash_scores).reshape(-1, 1)).flatten()
+            repeat_scores = self.scalers[1].transform(np.array(repeat_scores).reshape(-1, 1)).flatten()
+            
+        # 将分数组合成特征向量
+        features_list = [[b, r] for b, r in zip(brainwash_scores, repeat_scores)]
+        
+        return {
+            'features': torch.tensor(features_list, dtype=torch.float32),
+            'labels': torch.tensor(labels, dtype=torch.float32)
+        }
+
+class HybridModel(nn.Module):
+    def __init__(self, hidden_sizes=[64, 32]):
+        super().__init__()
+        
+        layers = []
+        # Input layer (2 features: brainwash and repeat scores)
+        layers.append(nn.Linear(2, hidden_sizes[0]))
+        layers.append(nn.ReLU())
+        layers.append(nn.BatchNorm1d(hidden_sizes[0]))
+        layers.append(nn.Dropout(0.3))
+        
+        # Hidden layers
+        for i in range(len(hidden_sizes)-1):
+            layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i+1]))
+            layers.append(nn.ReLU())
+            layers.append(nn.BatchNorm1d(hidden_sizes[i+1]))
+            layers.append(nn.Dropout(0.3))
+            
+        # Output layer
+        layers.append(nn.Linear(hidden_sizes[-1], 1))
+        layers.append(nn.Sigmoid())
+        
+        self.model = nn.Sequential(*layers)
+        
+    def forward(self, features, labels=None):
+        logits = self.model(features)
+        
+        loss = None
+        if labels is not None:
+            loss_fct = nn.BCELoss()
+            loss = loss_fct(logits.view(-1), labels.view(-1))
+            
+        return {'loss': loss, 'logits': logits} if loss is not None else {'logits': logits}
 
 class HybridAttack(ICLAttackStrategy):
     def __init__(self, attack_config: Dict[str, Any]):
         super().__init__(attack_config)
-
-        # If the random seed is not given in the config, this will ensure the random seed is totally the same for dataloaders of both sub-attacks
+        
+        # Ensure same random seed for both attacks
         attack_config['random_seed'] = self.random_seed
-
+        
         self.brainwash_attack = BrainwashAttack(attack_config)
         self.repeat_attack = RepeatAttack(attack_config)
-        self.trainer = HybridModelTrainer(attack_config, self.logger)
-        self.model = None
+        self.classifier = HybridModel(hidden_sizes=[64, 32])
+        self.classifier.to("cuda")
+        
+        self.classifier_dir = Path(self.logger.output_dir)/"hybrid-mlp"
 
-    def plot_loss_curve(self, losses):
-        plt.figure(figsize=(10, 5))
-        plt.plot(losses)
-        plt.title('Training Loss Curve')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        self.logger.savefig('hybrid_training_loss_curve.png')
-        plt.close()
+        # Training configs
+        self.training_args = TrainingArguments(
+            output_dir=self.classifier_dir,
+            num_train_epochs=attack_config.get('num_epochs', 500),
+            per_device_train_batch_size=attack_config.get('batch_size', 32),
+            per_device_eval_batch_size=attack_config.get('batch_size', 32),
+            learning_rate=attack_config.get('learning_rate', 2e-5),
+            weight_decay=attack_config.get('weight_decay', 0.01),
+            logging_dir=self.classifier_dir/"logs",
+            logging_steps=50,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            save_steps=50,
+            save_total_limit=10,
+            load_best_model_at_end=True,
+            metric_for_best_model="eval_loss"
+        )
 
     def prepare(self, data_config: Dict[str, Any]):
         super().prepare(data_config)
-        # WARNING: Be cautious for the potential data race, if any
         self.brainwash_attack.prepare(data_config, self.data_loader)
         self.repeat_attack.prepare(data_config, self.data_loader)
 
-    # @ICLAttackStrategy.cache_results
-    def attack(self, model: 'ModelInterface'):
-        # 执行Brainwash和Repeat攻击
+    def _attack(self, model: 'ModelInterface'):
+        # 执行子攻击并保存结果
         self.brainwash_attack.attack(model)
         self.repeat_attack.attack(model)
         
-        # 准备数据
-        brainwash_data = [score for _, _, score in self.brainwash_attack.results]
-        repeat_data = [score for _, _, score in self.repeat_attack.results]
+        # 创建结果表格
+        results_table = "dataset_overview"
+        self.logger.new_table(results_table)
+        
+        attack_data = []
+        for (bw_pred, bw_true, bw_score), (rp_pred, rp_true, rp_score) in zip(
+            self.brainwash_attack.results, self.repeat_attack.results
+        ):
+            # 验证两个攻击的ground truth一致
+            assert bw_true == rp_true, "Inconsistent ground truth between attacks"
+            
+            # 记录结果
+            row = self.logger.new_row(results_table)
+            self.logger.add("brainwash_score", bw_score)
+            self.logger.add("repeat_score", rp_score)
+            self.logger.add("is_member", bw_true)
+            
+            attack_data.append((bw_score, rp_score, bw_true))
+            
+        return attack_data
 
-        # 归一化
-        brainwash_data = MinMaxScaler().fit_transform(np.array(brainwash_data).reshape(-1, 1)).flatten()
-        repeat_data = MinMaxScaler().fit_transform(np.array(repeat_data).reshape(-1, 1)).flatten()
-        data = list(zip(brainwash_data, repeat_data))
-        labels = [float(is_member) for _, is_member, _ in self.brainwash_attack.results]
-
-        # 绘制散点图
-        self.plot_attack_scores(brainwash_data, repeat_data, np.array(labels))
-
-        # 划分训练集和测试集
-        train_data, test_data, train_labels, test_labels = train_test_split(
-            data, labels, test_size=0.3, random_state=self.random_seed
-        )
-
-        # 将数据转换为PyTorch张量并移到GPU
-        train_data = torch.tensor(train_data, dtype=torch.float32).to(self.device)
-        train_labels = torch.tensor(train_labels, dtype=torch.float32).unsqueeze(1).to(self.device)
-        test_data = torch.tensor(test_data, dtype=torch.float32).to(self.device)
-
-        # 训练模型
-        logger.info("Starting model training...")
-        training_results = self.trainer.train(train_data, train_labels)
-        self.model = training_results['model']
-        logger.info("Model training completed.")
-
-        # 进行混合攻击预测（使用测试集）
-        self.model.eval()
-        with torch.no_grad():
-            for data, is_member in zip(test_data, test_labels):
-                pred = self.model(data.unsqueeze(0)).item()
-                pred_member = pred > 0.5
-                self.results.append((pred_member, is_member, pred))
-
-                logger.info(f"Hybrid Attack Result:")
-                logger.info(f"Brainwash score: {data[0].item()}")
-                logger.info(f"Repeat score: {data[1].item()}")
-                logger.info(f"Is member: {is_member}, Predicted member: {pred_member}")
-                logger.info("-" * 50)
-
-    def plot_attack_scores(self, brainwash_scores, repeat_scores, labels):
+    def plot_attack_scores(self, data):
         plt.figure(figsize=(10, 8))
         
-        # 使用MinMaxScaler归一化scores，使其更容易可视化
-        scaler = MinMaxScaler()
-        brainwash_scores_scaled = scaler.fit_transform(np.array(brainwash_scores).reshape(-1, 1)).flatten()
-        repeat_scores_scaled = scaler.fit_transform(np.array(repeat_scores).reshape(-1, 1)).flatten()
+        # 提取分数和标签
+        brainwash_scores = np.array([x[0] for x in data])
+        repeat_scores = np.array([x[1] for x in data])
+        labels = np.array([x[2] for x in data])
 
-        # 为成员和非成员样本创建不同的散点图
-        plt.scatter(brainwash_scores_scaled[labels==1], repeat_scores_scaled[labels==1], 
-                    c='red', label='Member', alpha=0.6)
-        plt.scatter(brainwash_scores_scaled[labels==0], repeat_scores_scaled[labels==0], 
-                    c='blue', label='Non-member', alpha=0.6)
-
+        # 绘制散点图
+        plt.scatter(brainwash_scores[labels==1], repeat_scores[labels==1], 
+                   c='red', label='Member', alpha=0.6)
+        plt.scatter(brainwash_scores[labels==0], repeat_scores[labels==0], 
+                   c='blue', label='Non-member', alpha=0.6)
+        
         plt.xlabel('Brainwash Attack Score (Normalized)')
         plt.ylabel('Repeat Attack Score (Normalized)')
         plt.title('Hybrid Attack: Brainwash vs Repeat Scores')
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.7)
-
-        # 保存图像
+        
         self.logger.savefig('hybrid_attack_scores.png')
         plt.close()
 
-        logger.info("Hybrid attack scores plot saved as 'hybrid_attack_scores.png'")
+    def attack(self, model: 'ModelInterface'):
+        # 尝试加载缓存的攻击数据
+        self.attack_data = self.logger.load_data("hybrid_attack_data")
+        if self.attack_data is None:
+            self.attack_data = self._attack(model)
+            self.logger.save_data(self.attack_data, "hybrid_attack_data")
+            self.logger.save()
+        else:
+            print("Loaded cached attack data.")
+        
+        # 划分训练集和验证集
+        train_length = self.train_attack
+        train_data = self.attack_data[:train_length]
+        eval_data = self.attack_data[train_length:]
 
-    def evaluate(self) -> Dict[str, float]:
+        # 用全部数据，找一个合适的scaler
+        all_features = HybridDataCollator()(self.attack_data)['features']
+        brainwash_features = all_features[:, 0].reshape(-1, 1)
+        brainwash_scaler = MinMaxScaler().fit(brainwash_features)
+        repeat_features = all_features[:, 1].reshape(-1, 1)
+        repeat_scaler = MinMaxScaler().fit(repeat_features)
+        self.data_collator = HybridDataCollator(scalers=[brainwash_scaler, repeat_scaler])
+        
+        # 可视化攻击分数分布
+        self.plot_attack_scores(self.attack_data)
+
+        # 检查模型是否已训练
+        classifier_path = os.path.join(self.classifier_dir, "model.safetensors")
+        if not os.path.exists(classifier_path):
+            trainer = Trainer(
+                model=self.classifier,
+                args=self.training_args,
+                data_collator=self.data_collator,
+                train_dataset=train_data,
+                eval_dataset=eval_data
+            )
+            
+            self.logger.info("Starting model training...")
+            trainer.train()
+            self.logger.info("Model training completed.")
+            trainer.save_model(self.classifier_dir)
+        else:
+            self.logger.info("Model already trained. Loading the model...")
+            from safetensors.torch import load_file
+            self.classifier.load_state_dict(load_file(classifier_path))
+            
+        # 进行预测并记录结果
+        self.classifier.eval()
+        predictions_table = "predictions"
+        self.logger.new_table(predictions_table)
+        
+        eval_features = self.data_collator(eval_data)
+        
+        with torch.no_grad():
+            predictions = self.classifier(eval_features['features'].to('cuda'))['logits']
+            predictions = predictions.cpu().numpy().flatten()
+            
+            for i, (pred, (bw_score, rp_score, is_member)) in enumerate(zip(predictions, eval_data)):
+                pred_member = bool(pred > 0.5)
+                self.results.append((pred_member, bool(is_member), float(pred)))
+                
+                row = self.logger.new_row(predictions_table)
+                self.logger.add("sample_id", train_length + i)
+                self.logger.add("brainwash_score", bw_score)
+                self.logger.add("repeat_score", rp_score)
+                self.logger.add("prediction", pred)
+                self.logger.add("is_member", is_member)
+
+    def evaluate(self):
         predictions = [bool(pred) for pred, _, _ in self.results]
         ground_truth = [bool(truth) for _, truth, _ in self.results]
         scores = [score for _, _, score in self.results]
         
         metrics = EvaluationMetrics.calculate_advantage(predictions, ground_truth)
-        
         fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(ground_truth, scores)
-        log_fpr, log_tpr, log_auc = EvaluationMetrics.calculate_log_roc_auc(ground_truth, scores)
-        
         metrics['auc'] = roc_auc
-        metrics['log_auc'] = log_auc
-
-        if self.attack_config.get('plot_roc', False):
-            EvaluationMetrics.plot_roc(fpr, tpr, roc_auc, 'hybrid_roc_curve.png')
-            EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, 'hybrid_log_roc_curve.png')
-
-        print(f"Repeat: {self.repeat_attack.evaluate()}")
-        print(f"Brainwash: {self.brainwash_attack.evaluate()}")
-
-        # self.logger.save_json('evaluation.json', metrics)
-
+        
+        # 记录子攻击的评估结果
+        # print(f"Repeat: {self.repeat_attack.evaluate()}")
+        # print(f"Brainwash: {self.brainwash_attack.evaluate()}")
+        
+        # 将评估指标添加到logger
+        self.logger.new_table("metrics")
+        for key, value in metrics.items():
+            self.logger.add(key, value, "metrics")
+            
+        self.logger.save()
         return metrics
