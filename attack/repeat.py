@@ -1,7 +1,7 @@
 from .common import *
 
 from attack import ICLAttackStrategy
-from attack.string_utils import StringHelper
+from string_utils import StringHelper
 
 from llm.query import ModelInterface
 

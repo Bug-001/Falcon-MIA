@@ -147,7 +147,7 @@ class ICLAttackStrategy(ABC):
         self.assistant_prompt = self.data_config['prompt_template']['assistant']
     
     def remove_punctuation(self, word: str):
-        return word.strip(string.punctuation)
+        return word.translate(str.maketrans(string.punctuation, ' ' * len(string.punctuation)))
     
     def generate_prompt(self, user_template, assistant_template, samples):
         '''

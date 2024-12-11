@@ -248,9 +248,9 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
     attack_strategy.prepare(data_config)
     try:
         attack_strategy.attack(model)
+        attack_strategy.evaluate()
     except KeyboardInterrupt:
-        pass
-    attack_strategy.evaluate()
+        print("Attack interrupted.")
 
 if __name__ == "__main__":
     # Keep the original command-line argument parsing for backward compatibility

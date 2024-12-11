@@ -130,6 +130,7 @@ class AGNewsLoader(BaseDataLoader):
             "task_type": "classification",
             "metrics": ["accuracy"],
             "num_classes": 4,
+            "label_map": label_map,
             "prompt_template": {
                 "system": "Classify the news article into one of these categories: World, Sports, Sci/Tech, or Business.",
                 "user": "Article: {input}",

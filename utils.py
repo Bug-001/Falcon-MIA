@@ -7,17 +7,23 @@ import hashlib
 from typing import Any, Callable, Tuple
 from matplotlib import pyplot as plt
 from contextlib import contextmanager
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union, Callable
 import pandas as pd
 import torch
 from datetime import datetime
 from colorama import Fore, Style, init
 from datasets import Dataset, DatasetDict, concatenate_datasets
+from collections import defaultdict
+from functools import partial
+
+from pathlib import Path
 
 from data import DATASET_LOADERS, BaseDataLoader
+from string_utils import StringHelper
 
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import roc_curve, auc, f1_score
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 # Global output directory
 output_dir = "cache"
@@ -205,7 +211,7 @@ class SLogger:
 
 class SDatasetManager:
     def __init__(self, dataset_name: str, task: str = "default"):
-        self.dir = os.path.join(output_dir, "data")
+        self.dir = Path(output_dir)/"data"
         self.dataset_name = dataset_name
 
         if dataset_name not in DATASET_LOADERS:
@@ -218,6 +224,7 @@ class SDatasetManager:
             raise ValueError(f"Task {task} not supported for dataset {dataset_name}. Available tasks: {supported_tasks}")
         
         self._dataset, self.config = loader.load(task, data_dir=self.dir)
+        self.shelper = StringHelper()
 
     def get_config(self) -> Dict[str, Any]:
         return self.config
@@ -225,6 +232,18 @@ class SDatasetManager:
     def get_available_tasks(self) -> List[str]:
         loader: BaseDataLoader = DATASET_LOADERS[self.dataset_name]()
         return loader.get_supported_tasks()
+    
+    def get_idf(self, columns=['input', 'output']) -> np.ndarray:
+        """计算IDF"""
+        if not hasattr(self, 'idf'):
+            vectorizer = TfidfVectorizer(use_idf=True) # It will handle the preprocessing, so we don't need to do it
+            dataset = concatenate_datasets([self._dataset[split] for split in self._dataset.keys()])
+            dataset = dataset.map(lambda x: {'text': ' '.join([x[col] for col in columns])})
+            vectorizer.fit(dataset['text'])
+            words = vectorizer.get_feature_names_out()
+            idf = vectorizer.idf_
+            self.idf = dict(zip(words, idf))
+        return self.idf
 
     def _repeat_dataset_to_size(self, dataset, required_size):
         """将数据集重复到略大于所需大小，然后截取"""

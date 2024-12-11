@@ -6,11 +6,13 @@ from typing import Dict, Any, List, Set, Optional, Tuple, Union
 import nltk
 from nltk.corpus import wordnet, stopwords
 from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from scipy.spatial.distance import cosine
 import spacy
 from collections import defaultdict, Counter
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 _initiated = False
 if not _initiated:
@@ -28,17 +30,21 @@ if not _initiated:
         nltk.download('stopwords')
         g_stop_words = set(stopwords.words('english'))
     
+    try:
+        g_lemmatizer = WordNetLemmatizer()
+    except LookupError:
+        nltk.download('wordnet')
+        g_lemmatizer = WordNetLemmatizer()
+
     _initiated = True
 
 class ObfuscationTechniques:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.technique = config.get('technique', 'character_swap')
-        self.important_pos = ['NOUN', 'VERB', 'ADJ', "PRON"]
+        self.technique = config['technique']
+        self.important_pos = ['NOUN', 'VERB', 'ADJ']
         
         self.sentence_model = SentenceTransformer('distilbert-base-nli-mean-tokens')
-        self.similarity_threshold = config.get('similarity_threshold', 0.7)
-        self.keyword_threshold = config.get('keyword_threshold', 0.3)
         self.leet_dict = self._initialize_leet_dict()
 
         # Expanded invisible characters set
@@ -102,25 +108,20 @@ class ObfuscationTechniques:
     def obfuscate(self, text: str, level: float) -> str:
         doc = g_nlp(text)
         words = [token.text for token in doc]
-        important_indices = [i for i, token in enumerate(doc) if token.ent_type_ or token.pos_ in self.important_pos]
-        
-        num_words_to_obfuscate = round(len(important_indices) * level)
-        indices_to_obfuscate = set(random.sample(important_indices, num_words_to_obfuscate))
+        important_indices = set([i for i, token in enumerate(doc) if token.ent_type_ or token.pos_ in self.important_pos])
         
         if self.technique == 'character_swap':
-            return self._character_swap(words, indices_to_obfuscate, level)
+            return self._character_swap(words, important_indices, level)
         elif self.technique == 'leet_speak':
-            return self._leet_speak(words, indices_to_obfuscate, level)
-        elif self.technique == 'word_shuffle':
-            return self._word_shuffle(words, indices_to_obfuscate, level)
+            return self._leet_speak(words, important_indices, level)
         elif self.technique == 'similar_char_substitution':
-            return self._similar_char_substitution(words, indices_to_obfuscate, level)
+            return self._similar_char_substitution(words, important_indices, level)
         elif self.technique == 'invisible_char_insertion':
-            return self._invisible_char_insertion(words, indices_to_obfuscate, level)
+            return self._invisible_char_insertion(words, important_indices, level)
         elif self.technique == 'synonym_replacement':
-            return self._synonym_substitution(words, indices_to_obfuscate, level)
+            return self._synonym_substitution(words, important_indices, level)
         else:
-            return text
+            raise ValueError(f"Unsupported obfuscation technique: {self.technique}")
 
     def _character_swap(self, words: List[str], indices_to_obfuscate: set, level: float) -> str:
         for i in indices_to_obfuscate:
@@ -235,21 +236,6 @@ class ObfuscationTechniques:
 
         return ' '.join(words_list)
 
-    def _word_shuffle(self, words: List[str], indices_to_obfuscate: set, level: float) -> str:
-        for i in indices_to_obfuscate:
-            words[i] = self._shuffle_word(words[i], level)
-        return ' '.join(words)
-
-    def _shuffle_word(self, word: str, level: float) -> str:
-        if len(word) < 2:
-            return word
-        chars = list(word)
-        num_shuffles = int(len(word) * level)
-        for _ in range(num_shuffles):
-            i, j = random.sample(range(len(chars)), 2)
-            chars[i], chars[j] = chars[j], chars[i]
-        return ''.join(chars)
-
 class StringHelper:
     def __init__(self):
         self._sentence_model = None
@@ -266,6 +252,46 @@ class StringHelper:
             except ImportError as e:
                 raise ImportError(f"Please install sentence-transformers: {e}")
         return self._sentence_model
+    
+    def set_idf_dict(self, idf_dict: Dict[str, float]):
+        self._idf_dict = idf_dict
+        self._max_idf = max(idf_dict.values())
+
+    @property
+    def idf_dict(self):
+        return self._idf_dict
+    
+    @property
+    def max_idf(self):
+        return self._max_idf
+    
+    def clean_text(self, text: str, min_word_length: int = 2, remove_stopwords: bool = True, lemmatize: bool = True) -> str:
+        # 转换为小写
+        text = text.lower()
+        
+        # 将标点符号替换为空格
+        text = text.translate(str.maketrans(string.punctuation, ' ' * len(string.punctuation)))
+        
+        # # 移除数字
+        # text = re.sub(r'\d+', '', text)
+        
+        # 将多个空格替换为单个空格
+        text = re.sub(r'\s+', ' ', text)
+
+        # 分词
+        words = word_tokenize(text)
+        
+        # 过滤词
+        stop_words = g_stop_words if remove_stopwords else set()
+        words = [word for word in words 
+                if len(word) >= min_word_length 
+                and word not in stop_words]
+        
+        # 词形还原
+        if lemmatize:
+            words = [g_lemmatizer.lemmatize(word) for word in words]
+        
+        return ' '.join(words)
 
     def preprocess_text(self, text: str, mode: str = 'lexical') -> Union[List[str], np.ndarray]:
         """
@@ -273,20 +299,26 @@ class StringHelper:
         
         Args:
             text (str): Input text
-            mode (str): 'lexical' or 'semantic'
+            mode (str): 'lexical', 'idf', or 'semantic'
             
         Returns:
             Union[List[str], np.ndarray]: Preprocessed text as tokens or embedding
         """
         if mode == 'lexical':
             # Lexical preprocessing
-            text = text.lower()
+            text = text.lower().replace('\\', ' ')      
             tokens = word_tokenize(text)
             # Remove stopwords and punctuation
             tokens = [token.translate(str.maketrans('', '', string.punctuation)) 
                      for token in tokens if token not in g_stop_words]
             return [t for t in tokens if t]
-            
+        elif mode == 'idf':
+            # IDF preprocessing - more strict preprocessing than lexical
+            assert hasattr(self, 'idf_dict'), "IDF dictionary not found, please set it first."
+            # Disable lemmatization
+            text = self.clean_text(text, lemmatize=False)
+            tokens = word_tokenize(text)
+            return [t for t in tokens if t]
         elif mode == 'semantic':
             # Semantic preprocessing - get embedding
             return self.sentence_model.encode(text)
@@ -336,6 +368,60 @@ class StringHelper:
                     L[i][j] = max(L[i-1][j], L[i][j-1])
         
         return L[m][n] / max(m, n)
+    
+    # IDF based similarities
+    def idf_jaccard_similarity(self, tokens1: List[str], tokens2: List[str]) -> float:
+        """Calculate IDF-weighted Jaccard similarity between token lists."""
+        if not hasattr(self, 'idf_dict'):
+            raise ValueError("IDF dictionary not found, please set it first.")
+        
+        set1 = set(tokens1)
+        set2 = set(tokens2)
+        common_words = set1 & set2
+        idf_sum = 0
+        for word in common_words:
+            if word in self._idf_dict:
+                idf_sum += self._idf_dict[word]
+        idf_union = 0
+        max_idf = max(self._idf_dict.values())
+        for word in set1 | set2:
+            if word in self._idf_dict:
+                idf_union += self._idf_dict[word]
+            # else:
+            #     idf_union += max_idf
+        return idf_sum / idf_union if idf_union > 0 else 0.0
+
+    def idf_frequency_similarity(self, tokens1: List[str], tokens2: List[str]) -> float:
+        """Calculate IDF-weighted frequency-based similarity between token lists."""
+        if not hasattr(self, 'idf_dict'):
+            raise ValueError("IDF dictionary not found, please set it first.")
+        
+        freq1 = Counter(tokens1)
+        freq2 = Counter(tokens2)
+        common_words = set(freq1.keys()) & set(freq2.keys())
+        
+        if not common_words:
+            return 0.0
+        
+        idf_sum = 0
+        for word in common_words:
+            if word in self._idf_dict:
+                idf_sum += min(freq1[word], freq2[word]) * self._idf_dict[word]
+        max_idf = max(self._idf_dict.values())
+        freq1_sum = 0
+        for word in freq1:
+            if word in self._idf_dict:
+                freq1_sum += freq1[word] * self._idf_dict[word]
+            # else:
+            #     freq1_sum += freq1[word] * max_idf
+        freq2_sum = 0
+        for word in freq2:
+            if word in self._idf_dict:
+                freq2_sum += freq2[word] * self._idf_dict[word]
+            # else:
+            #     freq2_sum += freq2[word] * max_idf
+        total_freq_sum = max(freq1_sum, freq2_sum)
+        return idf_sum / total_freq_sum if total_freq_sum > 0 else 0.0
 
     # Semantic similarities
     def semantic_cosine_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
@@ -376,7 +462,15 @@ class StringHelper:
         similarities['frequency'] = self.lexical_frequency_similarity(data1, data2)
         similarities['sequence'] = self.lexical_sequence_similarity(data1, data2)
 
-        # 2. In semantic mode
+        # 2. In IDF enabled mode
+        mode = 'idf'
+        if hasattr(self, 'idf_dict'):
+            data1 = self.preprocess_text(text1, mode)
+            data2 = self.preprocess_text(text2, mode)
+            similarities['ijaccard'] = self.idf_jaccard_similarity(data1, data2)
+            similarities['ifrequency'] = self.idf_frequency_similarity(data1, data2)
+
+        # 3. In semantic mode
         mode = 'semantic'
         data1 = self.preprocess_text(text1, mode)
         data2 = self.preprocess_text(text2, mode)

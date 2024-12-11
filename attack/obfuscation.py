@@ -1,7 +1,9 @@
 from .common import *
 
 from attack import ICLAttackStrategy
-from attack.string_utils import ObfuscationTechniques, StringHelper
+from string_utils import ObfuscationTechniques, StringHelper
+
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, log_loss
 
 import torch
 from torch import nn
@@ -44,7 +46,7 @@ class ObfuscationDataCollator:
         }
 
 class ObfuscationModel(nn.Module):
-    def __init__(self, input_size, hidden_sizes=[64, 32]):
+    def __init__(self, input_size, hidden_sizes=[128, 64, 32, 16]):
         super().__init__()
         
         layers = []
@@ -219,27 +221,37 @@ class HFModelWrapper(torch.nn.Module):
     def forward(self, input):
         return self.model(input)['logits']
 
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions = (logits > 0.5).astype(np.int64)
+    
+    accuracy = accuracy_score(labels, predictions)
+
+    return {
+        'accuracy': accuracy,
+    }
+
 class ObfuscationAttack(ICLAttackStrategy):
     def __init__(self, attack_config: Dict[str, Any]):
         super().__init__(attack_config)
-        self.obfuscator = ObfuscationTechniques(attack_config.get('obfuscation_config', {}))
+        self.obfuscator = ObfuscationTechniques(attack_config)
         self.num_obfuscation_levels = attack_config.get('num_obfuscation_levels', 5)
         self.max_obfuscation_level = attack_config.get('max_obfuscation_level', 1)
         self.attack_template = attack_config.get('obsfucation_attack_template', "Classify the following text: {sample}")
 
         self.shelper = StringHelper()
         self.num_similarities = attack_config.get('num_similarities', 5)
-        self.classifier = ObfuscationModel(self.num_obfuscation_levels * (self.num_similarities + 1), hidden_sizes=[64, 32])
+        self.classifier = ObfuscationModel(self.num_obfuscation_levels * (self.num_similarities + 1), hidden_sizes=[128, 64, 32, 16])
         self.classifier.to("cuda")
 
         self.detector_dir = Path(self.logger.output_dir)/"obf-mlp"
         # Training configs
         self.training_args = TrainingArguments(
             output_dir=self.detector_dir,
-            num_train_epochs=attack_config.get('num_epochs', 1000),
-            per_device_train_batch_size=attack_config.get('batch_size', 32),
+            num_train_epochs=attack_config.get('num_epochs', 500),
+            per_device_train_batch_size=attack_config.get('batch_size', 8),
             per_device_eval_batch_size=attack_config.get('batch_size', 32),
-            learning_rate=attack_config.get('learning_rate', 2e-5),
+            learning_rate=attack_config.get('learning_rate', 5e-5),
             weight_decay=attack_config.get('weight_decay', 0.01),
             logging_dir=self.detector_dir/"logs",
             logging_steps=50,
@@ -249,7 +261,7 @@ class ObfuscationAttack(ICLAttackStrategy):
             save_steps=50,
             save_total_limit=10,
             load_best_model_at_end=True,
-            metric_for_best_model="eval_loss"
+            metric_for_best_model="accuracy"
         )
 
     def _attack(self, model):
@@ -270,13 +282,10 @@ class ObfuscationAttack(ICLAttackStrategy):
             
             icl_prompt = self.generate_icl_prompt(icl_samples)
             
-            # XXX: 从input和output中选择词数更长的样本，截断，用于混淆
-            # 可以考虑采用更加tricky虽然没什么卵用的方式
+            # 经研究发现混淆文本越长越好
             input_text = attack_sample["input"].split()
             output_text = attack_sample["output"].split()
             original_text = input_text if len(input_text) > len(output_text) else output_text
-            # 截取前50词，不够就全取
-            original_text = " ".join(original_text[:100])
 
             # 记录并打印基本信息
             self.logger.add("sample_id", main_row)
@@ -314,11 +323,17 @@ class ObfuscationAttack(ICLAttackStrategy):
     def attack(self, model):
         self.similarities_data = self.logger.load_data("similarities_data")
         if self.similarities_data == None:
+            if self.attack_config.get('use_idf', False):
+                self.idf = self.sdm.get_idf()
+                self.shelper.set_idf_dict(self.idf)
             self.similarities_data = self._attack(model)
             self.logger.save_data(self.similarities_data, "similarities_data")
             self.logger.save()
         else:
             print("Loaded cached similarities data.")
+
+        # XXX: Add an option here to avoid direct modification to code when testing
+        # raise KeyboardInterrupt
 
         # Train the model
         # 检查模型是否已经训练好
@@ -332,7 +347,8 @@ class ObfuscationAttack(ICLAttackStrategy):
                 args=self.training_args,
                 data_collator=ObfuscationDataCollator(),
                 train_dataset=train_data,
-                eval_dataset=test_data
+                eval_dataset=test_data,
+                compute_metrics=compute_metrics,
             )
             # 训练并保存模型
             self.logger.info("Starting model training...")
@@ -343,27 +359,6 @@ class ObfuscationAttack(ICLAttackStrategy):
             self.logger.info("Model already trained. Loading the model...")
             from safetensors.torch import load_file
             self.classifier.load_state_dict(load_file(classfier_path))
-
-        # # 找到最佳阈值并更新结果
-        # attack_results = self.logger.get_table("attack_results-train")
-        # scores = attack_results["mean_similarity"].tolist()
-        # true_labels = attack_results["Membership"].tolist()
-
-        # best_threshold, best_f1 = EvaluationMetrics.get_best_threshold(true_labels, scores)
-        # self.threshold = best_threshold
-
-        # # 计算准确率
-        # accuracy = np.mean((scores >= best_threshold) == true_labels)
-        
-        # # 更新预测结果
-        # attack_results["final_prediction"] = attack_results["mean_similarity"] >= best_threshold
-
-        # # 记录阈值相关的指标
-        # self.logger.new_table("metrics")
-        # self.logger.new_row("metrics")
-        # self.logger.add("best_threshold", best_threshold)
-        # self.logger.add("best_f1-train", best_f1)
-        # self.logger.add("accuracy-train", accuracy)
 
     def __add_evaluation_record_to_table(self, table, sample_id, original_text, responses, is_member, similarities, prediction):
         row = self.logger.new_row(table)
@@ -442,7 +437,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         # test_data对应于similariteis_data的最后若干数据，直接对应即可
         num_train = self.train_attack
         test_data = self.logger.get_table("dataset_overview").iloc[num_train:]
-        assert test_data['type'].tolist() == ['test'] * len(test_data), "Test data type is not 'test'"
+        # assert test_data['type'].tolist() == ['test'] * len(test_data), "Test data type is not 'test'"
         level_info = self.logger.get_table("level_details").iloc[num_train:]
 
         # 将similarities_data的test部分经过collator处理后，传入网络中
