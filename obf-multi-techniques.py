@@ -104,16 +104,20 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
     
     # 借用ObfuscationAttack的方法进行分析
     for key, similarities_data in final_results.items():
+        if key[1] != 'cce' or key[0] != 'platform_detection' or key[2] != 6:
+            continue
         data_config = {
             "dataset": key[1],
             "task": key[0],
             "num_demonstrations": key[2]
         }
-        data_config['technique'] = 'leet_speak' # 假设该文件夹已经准备好
+        data_config['technique'] = 'character_swap' # 假设该文件夹已经准备好
         attack_config['type'] = 'Obfuscation'
         attack_config['technique'] = 'obf_technique_test'
         attack_config['name'] = f'{model_name}/obf_technique_test/{key}'
         attack_config['num_similarities'] = len(list(similarities_data[0][0].values())[0])
+        attack_config['train_attack'] = 400
+        attack_config['test_attack'] = 100
         # 将similarities_data保存，从而攻击会跳过访问LLM的阶段
         os.makedirs(root_dir/attack_config['name'], exist_ok=True)
         with open(root_dir/attack_config['name']/"similarities_data", 'wb') as f:
@@ -133,6 +137,7 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
                 "sample_id": -1,
                 "response": "",
             }], f, indent=4)
+        print('Starting attack:', key)
         icl.main(data_config, attack_config, query_config)
 
 def load_yaml_config(config_path: str) -> Dict[str, Any]:
