@@ -9,3 +9,6 @@ __pycache__
 wandb
 
 cache
+
+test.ipynb
+.ipynb_checkpoints
