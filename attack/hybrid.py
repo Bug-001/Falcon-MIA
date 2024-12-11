@@ -189,6 +189,9 @@ class HybridAttack(ICLAttackStrategy):
         # 可视化攻击分数分布
         self.plot_attack_scores(self.attack_data)
 
+        # self.logger.save()
+        # raise KeyboardInterrupt("Stop here for now.")
+
         # 检查模型是否已训练
         classifier_path = os.path.join(self.classifier_dir, "model.safetensors")
         if not os.path.exists(classifier_path):
