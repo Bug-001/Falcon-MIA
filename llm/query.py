@@ -8,6 +8,7 @@ from colorama import Fore, init
 from abc import ABC, abstractmethod
 import logging
 import openai
+import anthropic
 import time
 from typing import List, Dict
 
@@ -100,6 +101,28 @@ class AIMLClient(ModelClient):
                 raise e
                 return None
 
+class AnthropicClient(ModelClient):
+    def __init__(self, api_key):
+        self.client = anthropic.Anthropic(api_key=api_key)
+
+    def chat_completion(self, messages: List[Dict], **kwargs):
+        # Move the system prompt out of the messages list
+        if len(messages) > 0 and messages[0]['role'] == 'system':
+            system = messages.pop(0)['content']
+
+        kwargs.pop('frequency_penalty')  # Remove model from kwargs
+
+        completion = self.client.messages.create(
+            system=system,
+            messages=messages,
+            model=kwargs['model'],
+            stop_sequences=kwargs['stop'],
+            max_tokens=kwargs['max_tokens'],
+            temperature=kwargs['temperature'],
+            top_p=kwargs['top_p'],
+        )
+        return completion.content[0].text
+
 class QueryProcessor:
     def __init__(self, query, full_output=False):
         self.query = query
@@ -123,6 +146,8 @@ class QueryProcessor:
             return LocalClient(base_url)
         elif model_type == "infinigence":
             return InfinigenceClient(api_key=get_api_key("infinigence"))
+        elif model_type == "anthropic":
+            return AnthropicClient(api_key=get_api_key("anthropic"))
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 
