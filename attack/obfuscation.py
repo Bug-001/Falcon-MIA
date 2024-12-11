@@ -304,7 +304,7 @@ class ObfuscationAttack(ICLAttackStrategy):
                     "content": self.attack_template.format(input=obfuscated_text)
                 }]
                 response = model.query(query_prompt, "Obfuscation Attack")[0]
-                # response = response.split('\n')[0]  # 只使用第一行
+                response = response.split('\n')[0]  # 只使用第一行
                 similarities = self.shelper.calculate_overall_similarity_dict(original_text, response)
                 
                 # 记录level的详细信息
