@@ -41,11 +41,19 @@ class LocalClient(ModelClient):
         self.client = OpenAI(base_url=base_url)
 
     def chat_completion(self, messages, **kwargs):
-        completion = self.client.chat.completions.create(
-            messages=messages,
-            **kwargs
-        )
-        return completion.choices[0].message.content
+        while True:
+            try:
+                completion = self.client.chat.completions.create(
+                    messages=messages,
+                    **kwargs
+                )
+                return completion.choices[0].message.content
+            except openai.InternalServerError as e:
+                if e.status_code == 502:
+                    print("Server is not connected. Retrying in 30 seconds...")
+                    time.sleep(30)
+                else:
+                    raise
 
 class InfinigenceClient(ModelClient):
     def __init__(self, api_key):
