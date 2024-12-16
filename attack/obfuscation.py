@@ -328,6 +328,7 @@ class ObfuscationAttack(ICLAttackStrategy):
                 self.idf = self.sdm.get_idf()
                 self.shelper.set_idf_dict(self.idf)
             if self.attack_config.get('obf_use_idf', False):
+                self.idf = self.sdm.get_idf()
                 self.obfuscator.set_idf_dict(self.idf)
             self.similarities_data = self._attack(model)
             self.logger.save_data(self.similarities_data, "similarities_data")
