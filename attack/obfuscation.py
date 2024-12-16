@@ -336,8 +336,8 @@ class ObfuscationAttack(ICLAttackStrategy):
         else:
             print("Loaded cached similarities data.")
 
-        # XXX: Add an option here to avoid direct modification to code when testing
-        # raise KeyboardInterrupt
+        if self.attack_config.get('attack_phase', 'all') == 'request':
+            raise KeyboardInterrupt
 
         # Train the model
         # 检查模型是否已经训练好
