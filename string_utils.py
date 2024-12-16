@@ -47,6 +47,8 @@ class ObfuscationTechniques:
         self.sentence_model = SentenceTransformer('distilbert-base-nli-mean-tokens')
         self.leet_dict = self._initialize_leet_dict()
 
+        self._idf_dict = None
+
         # Expanded invisible characters set
         self.invisible_chars = (
             '\u200B\u200C\u200D\u200E\u200F'  # Zero-width characters
@@ -105,136 +107,188 @@ class ObfuscationTechniques:
             'y': ['`/', '¥', '\\|/'], 'z': ['2', '7_', '>_']
         }
 
+    def set_idf_dict(self, idf_dict: Dict[str, float]):
+        self._idf_dict = idf_dict
+        self._max_idf = max(idf_dict.values())
+
     def obfuscate(self, text: str, level: float) -> str:
+        """
+        对文本进行混淆处理
+        Args:
+            text: 输入文本
+            base_level: 基础混淆程度(0-1)
+        Returns:
+            混淆后的文本
+        """
         doc = g_nlp(text)
         words = [token.text for token in doc]
-        important_indices = set([i for i, token in enumerate(doc) if token.ent_type_ or token.pos_ in self.important_pos])
+        
+        # 计算每个词的权重
+        word_weights = []
+        if self._idf_dict is not None:
+            # 使用IDF权重
+            max_idf = max(self._idf_dict.values())
+            for word in words:
+                if word.lower() in self._idf_dict:
+                    weight = self._idf_dict[word.lower()] / max_idf
+                else:
+                    weight = 0.0
+                word_weights.append(weight)
+        else:
+            # 使用简单的重要性判断
+            for i, token in enumerate(doc):
+                if token.ent_type_ or token.pos_ in self.important_pos:
+                    word_weights.append(1.0)
+                else:
+                    word_weights.append(0.5)
+        
+        # 计算每个词的实际混淆程度
+        word_levels = [w * level for w in word_weights]
         
         if self.technique == 'character_swap':
-            return self._character_swap(words, important_indices, level)
+            return self._character_swap(words, word_levels)
         elif self.technique == 'leet_speak':
-            return self._leet_speak(words, important_indices, level)
+            return self._leet_speak(words, word_levels)
         elif self.technique == 'similar_char_substitution':
-            return self._similar_char_substitution(words, important_indices, level)
+            return self._similar_char_substitution(words, word_levels)
         elif self.technique == 'invisible_char_insertion':
-            return self._invisible_char_insertion(words, important_indices, level)
+            return self._invisible_char_insertion(words, word_levels)
         elif self.technique == 'synonym_replacement':
-            return self._synonym_substitution(words, important_indices, level)
+            return self._synonym_substitution(words, word_levels)
         else:
             raise ValueError(f"Unsupported obfuscation technique: {self.technique}")
 
-    def _character_swap(self, words: List[str], indices_to_obfuscate: set, level: float) -> str:
-        for i in indices_to_obfuscate:
-            words[i] = self._swap_characters(words[i], level)
-        return ' '.join(words)
+    def _character_swap(self, words: List[str], word_levels: List[float]) -> str:
+        """
+        字符交换混淆
+        Args:
+            words: 单词列表
+            word_levels: 每个单词对应的混淆程度(0-1)
+        """
+        result = []
+        for word, level in zip(words, word_levels):
+            if len(word) < 2 or level == 0:
+                result.append(word)
+                continue
+            
+            chars = list(word)
+            num_swaps = int(len(word) * level / 2)  # 每次交换会影响两个字符，所以除以2
+            for _ in range(num_swaps):
+                i, j = random.sample(range(len(word)), 2)
+                chars[i], chars[j] = chars[j], chars[i]
+            result.append(''.join(chars))
+        
+        return ' '.join(result)
 
-    def _swap_characters(self, word: str, level: float) -> str:
-        if len(word) < 2:
-            return word
-        chars = list(word)
-        num_swaps = int(len(word) * level / 2)
-        for _ in range(num_swaps):
-            i, j = random.sample(range(len(word)), 2)
-            chars[i], chars[j] = chars[j], chars[i]
-        return ''.join(chars)
-
-    def _select_chars_to_obfuscate(self, words: List[str], num_chars: int, word_indices: Optional[Set[int]] = None, allow_repeat: bool = False) -> List[Tuple[int, int]]:
+    def _select_chars_for_substitution(self, words: List[str], word_levels: List[float], total_chars: int) -> List[Tuple[int, int]]:
+        """
+        根据每个词的level选择要替换的字符位置
+        Args:
+            words: 单词列表
+            word_levels: 每个单词的混淆程度
+            total_chars: 需要替换的总字符数
+        Returns:
+            要替换的字符位置列表，每个元素为(词索引, 字符索引)
+        """
+        # 计算每个词的字符数乘以level
+        weighted_lengths = [len(word) * level for word, level in zip(words, word_levels)]
+        total_weighted_length = sum(weighted_lengths)
+        
+        if total_weighted_length == 0:
+            return []
+        
+        # 归一化得到概率分布
+        word_probs = [w / total_weighted_length for w in weighted_lengths]
+        
+        # 根据概率分布抽取词的索引
+        selected_word_indices = np.random.choice(
+            len(words), 
+            size=total_chars, 
+            p=word_probs
+        )
+        
+        # 对每个被选中的词，随机选择一个字符位置
         char_positions = []
-        for word_idx, word in enumerate(words):
-            if word_indices is None or word_idx in word_indices:
-                char_positions.extend((word_idx, char_idx) for char_idx, char in enumerate(word) if char.isalpha())
+        for word_idx in selected_word_indices:
+            word = words[word_idx]
+            if len(word) > 0:  # 确保词非空
+                char_idx = random.randrange(len(word))
+                char_positions.append((word_idx, char_idx))
         
-        if allow_repeat:
-            return [random.choice(char_positions) for _ in range(num_chars)]
-        else:
-            return random.sample(char_positions, min(num_chars, len(char_positions)))
+        return char_positions
 
-    def _leet_speak(self, words: List[str], important_indices: Set[int], level: float) -> str:
-        # Calculate characters to change for important and non-important words
-        important_chars = sum(len(word) for i, word in enumerate(words) if i in important_indices and word.isalpha())
-        non_important_chars = sum(len(word) for i, word in enumerate(words) if i not in important_indices and word.isalpha())
+    def _apply_char_substitution(self, words: List[str], word_levels: List[float], char_map: Dict[str, List[str]]) -> str:
+        """
+        通用的字符替换函数
+        Args:
+            words: 单词列表
+            word_levels: 每个单词的混淆程度
+            char_map: 字符映射字典
+        Returns:
+            混淆后的文本
+        """
+        # 计算需要替换的总字符数
+        total_chars = sum(int(len(word) * level) for word, level in zip(words, word_levels))
         
-        chars_to_change_important = int(important_chars * level)
-        chars_to_change_non_important = int(non_important_chars * level / 2)
-
-        # Select characters to obfuscate for important and non-important words
-        important_chars_to_obfuscate = self._select_chars_to_obfuscate(words, chars_to_change_important, important_indices)
-        non_important_chars_to_obfuscate = self._select_chars_to_obfuscate(words, chars_to_change_non_important, set(range(len(words))) - important_indices)
-
-        # Combine the lists of characters to obfuscate
-        all_chars_to_obfuscate = important_chars_to_obfuscate + non_important_chars_to_obfuscate
-
-        # Perform the leet speak obfuscation
-        words_list = list(words)  # Convert to list to allow item assignment
-        for word_idx, char_idx in all_chars_to_obfuscate:
-            char = words_list[word_idx][char_idx].lower()
-            if char in self.leet_dict:
-                word = list(words_list[word_idx])
-                word[char_idx] = random.choice(self.leet_dict[char])
-                words_list[word_idx] = ''.join(word)
-
-        return ' '.join(words_list)
-
-    def _synonym_substitution(self, words: List[str], important_indices: Set[int], level: float) -> List[str]:
-        num_to_change = int(len(important_indices) * level)
-        indices_to_change = random.sample(list(important_indices), min(num_to_change, len(important_indices)))
+        # 选择要替换的字符位置
+        char_positions = self._select_chars_for_substitution(words, word_levels, total_chars)
         
-        words_list = list(words)
-        for idx in indices_to_change:
+        # 应用替换
+        result = [list(word) for word in words]
+        for word_idx, char_idx in char_positions:
+            char = result[word_idx][char_idx].lower()
+            if char in char_map:
+                result[word_idx][char_idx] = random.choice(char_map[char])
+        
+        return ' '.join(''.join(chars) for chars in result)
+
+    def _leet_speak(self, words: List[str], word_levels: List[float]) -> str:
+        """
+        Leet编码混淆
+        Args:
+            words: 单词列表
+            word_levels: 每个单词对应的混淆程度(0-1)
+        """
+        return self._apply_char_substitution(words, word_levels, self.leet_dict)
+
+    def _similar_char_substitution(self, words: List[str], word_levels: List[float]) -> str:
+        """
+        相似字符替换
+        Args:
+            words: 单词列表
+            word_levels: 每个单词对应的混淆程度(0-1)
+        """
+        return self._apply_char_substitution(words, word_levels, self.similar_chars)
+
+    def _synonym_substitution(self, words: List[str], word_levels: List[float]) -> str:
+        """
+        同义词替换
+        Args:
+            words: 单词列表
+            word_levels: 每个单词对应的混淆程度(0-1)
+        Returns:
+            混淆后的文本
+        """
+        result = list(words)
+        
+        for i, (word, level) in enumerate(zip(words, word_levels)):
+            # 按level概率决定是否替换该词
+            if random.random() >= level:
+                continue
+            
             synonyms = []
-            for syn in wordnet.synsets(words_list[idx]):
+            # 获取同义词
+            for syn in wordnet.synsets(word):
                 for lemma in syn.lemmas():
-                    if lemma.name().lower() != words_list[idx].lower():
+                    if lemma.name().lower() != word.lower():
                         synonyms.append(lemma.name())
+            
+            # 如果找到同义词则随机选择一个替换
             if synonyms:
-                words_list[idx] = random.choice(synonyms).replace('_', ' ')
+                replacement = random.choice(synonyms).replace('_', ' ')
+                result[i] = replacement
         
-        return ' '.join(words_list)
-
-    def _invisible_char_insertion(self, words: List[str], important_indices: Set[int], level: float) -> str:
-        # Calculate characters to change for important and non-important words
-        important_chars = sum(len(word) for i, word in enumerate(words) if i in important_indices and word.isalpha())
-        non_important_chars = sum(len(word) for i, word in enumerate(words) if i not in important_indices and word.isalpha())
-        
-        chars_to_insert_important = int(important_chars * level)
-        chars_to_insert_non_important = int(non_important_chars * level / 2)
-
-        important_positions = self._select_chars_to_obfuscate(words, chars_to_insert_important, important_indices, allow_repeat=True)
-        non_important_positions = self._select_chars_to_obfuscate(words, chars_to_insert_non_important, set(range(len(words))) - important_indices, allow_repeat=True)
-
-        all_positions = important_positions + non_important_positions
-        words_list = list(words)
-
-        for word_idx, char_idx in all_positions:
-            invisible_char = random.choice(self.invisible_chars)
-            word = list(words_list[word_idx])
-            word.insert(char_idx, invisible_char)
-            words_list[word_idx] = ''.join(word)
-
-        return ' '.join(words_list)
-
-    def _similar_char_substitution(self, words: List[str], important_indices: Set[int], level: float) -> str:
-        # Calculate characters to change for important and non-important words
-        important_chars = sum(len(word) for i, word in enumerate(words) if i in important_indices and word.isalpha())
-        non_important_chars = sum(len(word) for i, word in enumerate(words) if i not in important_indices and word.isalpha())
-        
-        chars_to_change_important = int(important_chars * level)
-        chars_to_change_non_important = int(non_important_chars * level / 2)
-        
-        important_chars_to_obfuscate = self._select_chars_to_obfuscate(words, chars_to_change_important, important_indices)
-        non_important_chars_to_obfuscate = self._select_chars_to_obfuscate(words, chars_to_change_non_important, set(range(len(words))) - important_indices)
-
-        all_chars_to_obfuscate = important_chars_to_obfuscate + non_important_chars_to_obfuscate
-
-        words_list = list(words)
-        for word_idx, char_idx in all_chars_to_obfuscate:
-            char = words_list[word_idx][char_idx].lower()
-            if char in self.similar_chars:
-                word = list(words_list[word_idx])
-                word[char_idx] = random.choice(self.similar_chars[char])
-                words_list[word_idx] = ''.join(word)
-
-        return ' '.join(words_list)
+        return ' '.join(result)
 
 class StringHelper:
     def __init__(self):

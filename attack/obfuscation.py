@@ -286,6 +286,7 @@ class ObfuscationAttack(ICLAttackStrategy):
             input_text = attack_sample["input"].split()
             output_text = attack_sample["output"].split()
             original_text = input_text if len(input_text) > len(output_text) else output_text
+            original_text = " ".join(original_text)
 
             # 记录并打印基本信息
             self.logger.add("sample_id", main_row)
@@ -323,9 +324,11 @@ class ObfuscationAttack(ICLAttackStrategy):
     def attack(self, model):
         self.similarities_data = self.logger.load_data("similarities_data")
         if self.similarities_data == None:
-            if self.attack_config.get('use_idf', False):
+            if self.attack_config.get('sim_use_idf', False):
                 self.idf = self.sdm.get_idf()
                 self.shelper.set_idf_dict(self.idf)
+            if self.attack_config.get('obf_use_idf', False):
+                self.obfuscator.set_idf_dict(self.idf)
             self.similarities_data = self._attack(model)
             self.logger.save_data(self.similarities_data, "similarities_data")
             self.logger.save()
