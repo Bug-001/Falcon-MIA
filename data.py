@@ -143,7 +143,7 @@ class LexGlueLoader(BaseDataLoader):
     """用于加载和处理法律文本预测数据集的加载器"""
     
     def get_supported_tasks(self) -> List[str]:
-        return ["prediction", "generation", "multiple_choice"]
+        return ["prediction", "generation", "multiple_choice", "judgment"]
     
     def _process_for_prediction(self, example):
         """处理预测任务的数据，将所有可能的endings作为选项"""
@@ -167,6 +167,15 @@ class LexGlueLoader(BaseDataLoader):
             "context": example['context'],
             "choices": example['endings'],
             "answer_index": example['label']
+        }
+    
+    def _process_for_judgment(self, example):
+        """处理判断任务的数据"""
+        context = example['context']
+        selected_choice = abs(hash(context)) // 10 % len(example['endings'])
+        return {
+            "input": context + ' ' + example['endings'][selected_choice],
+            "output": 'Yes' if selected_choice == example['label'] else 'No'
         }
     
     def _process_for_generation(self, example):
@@ -216,6 +225,19 @@ class LexGlueLoader(BaseDataLoader):
                     "system": "Select the correct legal holding for the given case.",
                     "user": "Context: {context}\nChoices: {choices}",
                     "assistant": "The correct choice is option {answer_index}."
+                }
+            }
+        elif task == "judgment":
+            processed_dataset = dataset.map(self._process_for_judgment)
+            config = {
+                "dataset_name": "lex_glue_case_hold",
+                "task": task,
+                "task_type": "binary_classification",
+                "metrics": ["accuracy"],
+                "prompt_template": {
+                    "system": "You are a legal expert. Determine if the provided legal holding is correct for the given case, and answer with Yes or No.",
+                    "user": "{input}",
+                    "assistant": "{output}"
                 }
             }
         else:  # generation task
