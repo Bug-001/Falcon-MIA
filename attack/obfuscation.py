@@ -324,6 +324,8 @@ class ObfuscationAttack(ICLAttackStrategy):
     def attack(self, model):
         self.similarities_data = self.logger.load_data("similarities_data")
         if self.similarities_data == None:
+            if self.attack_config.get('attack_phase', 'all') == 'train-test':
+                raise ValueError("Similarities data is not found. Please run the attack in all phase")
             if self.attack_config.get('sim_use_idf', False):
                 self.idf = self.sdm.get_idf()
                 self.shelper.set_idf_dict(self.idf)

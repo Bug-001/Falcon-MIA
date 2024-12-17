@@ -12,21 +12,44 @@ from dotenv import load_dotenv
 from attack.obfuscation import ObfuscationAttack
 import icl
 
-def parse_folder_name(folder_name: str) -> Dict[str, str]:
-    """解析task(xx)--dataset(xx)--num_demonstrations(xx)--technique(xx)格式的路径"""
-    pattern = r"task\((\w+)\)--dataset\((\w+)\)--num_demonstrations\((\d+)\)--technique\((\w+)\)"
-    match = re.match(pattern, folder_name)
-    if not match:
-        return {}
-    return {
-        "task": match.group(1),
-        "dataset": match.group(2),
-        "num_demonstrations": int(match.group(3)),
-        "technique": match.group(4)
-    }
+def parse_folder_name(folder_name: str) -> Dict[str, Any]:
+    result = {}
+    parts = folder_name.split('--')
+    
+    for part in parts:
+        if '(' not in part or ')' not in part:
+            continue
+            
+        key = part[:part.find('(')]
+        value = part[part.find('(')+1:part.find(')')]
+        
+        if key == 'num_demonstrations':
+            value = int(value)
+        elif key in ['sim_use_idf', 'obf_use_idf']:
+            value = value.lower() == 'true'
+            
+        result[key] = value
+        
+    return result
 
 def get_folder_name(info: Dict[str, str]) -> str:
-    return f"task({info['task']})--dataset({info['dataset']})--num_demonstrations({info['num_demonstrations']})--technique({info['technique']})"
+    parts = []
+    
+    # 优先添加task和dataset
+    if 'dataset' in info:
+        parts.append(f"dataset({info['dataset']})")
+    if 'task' in info:
+        parts.append(f"task({info['task']})")
+        
+    # 添加其他键值对
+    other_parts = []
+    for key, value in sorted(info.items()):
+        if key not in ['task', 'dataset']:
+            other_parts.append(f"{key}({value})")
+            
+    parts.extend(other_parts)
+    
+    return '--'.join(parts)
 
 def load_similarities(folder_path: Path) -> List[Tuple[Dict, Dict]]:
     sim_path = folder_path / "similarities_data"
@@ -39,9 +62,8 @@ def get_folders(root_dir: str) -> list:
     root = Path(root_dir)
     return [f for f in root.iterdir() if f.is_dir()]
 
-def main(data_config, attack_config, query_config, name='unnamed_experiment'):
+def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-Instruct'):
     root_dir = Path("cache/log")
-    model_name = 'Meta-Llama-3-8B-Instruct'
     folders = get_folders(root_dir/model_name)
     
     # 收集数据
@@ -104,8 +126,6 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
     
     # 借用ObfuscationAttack的方法进行分析
     for key, similarities_data in final_results.items():
-        if key[1] != 'cce' or key[0] != 'platform_detection' or key[2] != 6:
-            continue
         data_config = {
             "dataset": key[1],
             "task": key[0],
@@ -118,6 +138,7 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
         attack_config['num_similarities'] = len(list(similarities_data[0][0].values())[0])
         attack_config['train_attack'] = 400
         attack_config['test_attack'] = 100
+        attack_config['attack_phase'] = 'train-test'
         # 将similarities_data保存，从而攻击会跳过访问LLM的阶段
         os.makedirs(root_dir/attack_config['name'], exist_ok=True)
         with open(root_dir/attack_config['name']/"similarities_data", 'wb') as f:
