@@ -31,9 +31,14 @@ class RepeatAttack(ICLAttackStrategy):
     def attack(self, model: 'ModelInterface'):
         self.logger.new_table("repeat-attack_results")
 
-        data_list = self.data_loader.train() + self.data_loader.test()
-        for icl_samples, attack_sample, is_member in tqdm(data_list):
-            icl_prompt = self.generate_icl_prompt(icl_samples)
+        train_data = self.data_loader.train()
+        test_data = self.data_loader.test()
+        data_list = train_data + test_data
+        train_length = len(train_data)
+        
+        for i, (icl_samples, attack_sample, is_member) in enumerate(tqdm(data_list)):
+            is_train = i < train_length
+            icl_prompt = self.generate_icl_prompt(icl_samples, is_train=is_train)
             
             # Take num_words as the half length of the sentence if num_words is 0
             num_words = self.num_words if self.num_words > 0 else (len(attack_sample["input"]) // 2)

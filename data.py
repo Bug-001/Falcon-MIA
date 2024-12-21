@@ -49,11 +49,28 @@ class GPQALoader(BaseDataLoader):
             "task": "default",
             "task_type": "qa",
             "metrics": ["accuracy"],
-            "prompt_template": {
-                "system": "You are an expert in question answering. Answer the question with your best effort.",
-                "user": "Question: {input}",
-                "assistant": "Answer: {output}"
-            }
+            "prompt_template": [
+                {
+                    "system": "You are an expert in question answering. Answer the question with your best effort.",
+                    "user": "Question: {input}",
+                    "assistant": "Answer: {output}"
+                },
+                {
+                    "system": "As a knowledgeable assistant, provide accurate and concise answers to questions.",
+                    "user": "Please answer this question: {input}",
+                    "assistant": "The answer is: {output}"
+                },
+                {
+                    "system": "You are a helpful AI trained to provide precise answers to various questions.",
+                    "user": "Here's a question for you: {input}",
+                    "assistant": "Here's the answer: {output}"
+                },
+                {
+                    "system": "Acting as a question-answering specialist, give detailed and accurate responses.",
+                    "user": "I need an answer to this: {input}",
+                    "assistant": "Based on my knowledge: {output}"
+                }
+            ]
         }
         return processed_dataset, config
 
@@ -91,11 +108,23 @@ class TRECLoader(BaseDataLoader):
             "metrics": ["accuracy"],
             "label_map": label_map,
             "num_classes": 6,
-            "prompt_template": {
-                "system": "Classify the following question based on whether its answer type is a Number, Location, Person, Description, Entity, or Abbreviation.",
-                "user": "Question: {input}",
-                "assistant": "Type: {output}"
-            }
+            "prompt_template": [
+                {
+                    "system": "Classify the following question based on whether its answer type is a Number, Location, Person, Description, Entity, or Abbreviation.",
+                    "user": "Question: {input}",
+                    "assistant": "Type: {output}"
+                },
+                {
+                    "system": "Determine the expected answer type for the given question from these categories: Number, Location, Person, Description, Entity, or Abbreviation.",
+                    "user": "Analyze this question: {input}",
+                    "assistant": "The expected answer type is: {output}"
+                },
+                {
+                    "system": "You are an expert at analyzing questions. Categorize each question based on its expected answer type.",
+                    "user": "What type of answer does this question seek: {input}",
+                    "assistant": "This question seeks a(n) {output} as its answer."
+                }
+            ]
         }
         return processed_dataset, config
 
@@ -131,11 +160,23 @@ class AGNewsLoader(BaseDataLoader):
             "metrics": ["accuracy"],
             "num_classes": 4,
             "label_map": label_map,
-            "prompt_template": {
-                "system": "Classify the news article into one of these categories: World, Sports, Sci/Tech, or Business.",
-                "user": "Article: {input}",
-                "assistant": "Category: {output}"
-            }
+            "prompt_template": [
+                {
+                    "system": "Classify the news article into one of these categories: World, Sports, Sci/Tech, or Business.",
+                    "user": "Article: {input}",
+                    "assistant": "Category: {output}"
+                },
+                {
+                    "system": "As a news categorization expert, classify each article into its appropriate category.",
+                    "user": "Please categorize this news article:\n{input}",
+                    "assistant": "This article belongs to the {output} category."
+                },
+                {
+                    "system": "You are a news classifier. Determine the most suitable category for each article from: World, Sports, Sci/Tech, or Business.",
+                    "user": "News text: {input}",
+                    "assistant": "Based on the content, this is a {output} news article."
+                }
+            ]
         }
         return processed_dataset, config
 
@@ -208,11 +249,23 @@ class LexGlueLoader(BaseDataLoader):
                 "task": task,
                 "task_type": "multiple_choice_qa",
                 "metrics": ["accuracy", "f1"],
-                "prompt_template": {
-                    "system": "You are a legal expert. Based on the given legal context, select the most appropriate legal holding from the provided options.",
-                    "user": "{input}",
-                    "assistant": "Based on the legal context, the correct holding is {output}."
-                }
+                "prompt_template": [
+                    {
+                        "system": "You are a legal expert. Based on the given legal context, select the most appropriate legal holding from the provided options.",
+                        "user": "{input}",
+                        "assistant": "Based on the legal context, the correct holding is {output}."
+                    },
+                    {
+                        "system": "As an experienced legal analyst, evaluate the case and select the most fitting legal holding.",
+                        "user": "Case details:\n{input}",
+                        "assistant": "After analyzing the case, I determine that {output} is the correct legal holding."
+                    },
+                    {
+                        "system": "You are a legal professional specializing in case analysis. Choose the most appropriate holding for the given case.",
+                        "user": "Review this case:\n{input}",
+                        "assistant": "Having reviewed the case, I conclude that {output} represents the correct holding."
+                    }
+                ]
             }
         elif task == "multiple_choice":
             processed_dataset = dataset.map(self._process_for_multiple_choice)
@@ -221,11 +274,23 @@ class LexGlueLoader(BaseDataLoader):
                 "task": task,
                 "task_type": "multiple_choice",
                 "metrics": ["accuracy"],
-                "prompt_template": {
-                    "system": "Select the correct legal holding for the given case.",
-                    "user": "Context: {context}\nChoices: {choices}",
-                    "assistant": "The correct choice is option {answer_index}."
-                }
+                "prompt_template": [
+                    {
+                        "system": "Select the correct legal holding for the given case.",
+                        "user": "Context: {context}\nChoices: {choices}",
+                        "assistant": "The correct choice is option {answer_index}."
+                    },
+                    {
+                        "system": "As a legal expert, identify the most appropriate legal holding from the given options.",
+                        "user": "Case context:\n{context}\nAvailable options:\n{choices}",
+                        "assistant": "After careful consideration, I select option {answer_index} as the correct holding."
+                    },
+                    {
+                        "system": "You are a legal professional. Choose the correct legal holding from multiple options.",
+                        "user": "Legal case:\n{context}\nPossible holdings:\n{choices}",
+                        "assistant": "Based on the case details, option {answer_index} is the correct legal holding."
+                    }
+                ]
             }
         elif task == "judgment":
             processed_dataset = dataset.map(self._process_for_judgment)
@@ -234,11 +299,23 @@ class LexGlueLoader(BaseDataLoader):
                 "task": task,
                 "task_type": "binary_classification",
                 "metrics": ["accuracy"],
-                "prompt_template": {
-                    "system": "You are a legal expert. Determine if the provided legal holding is correct for the given case, and answer with Yes or No.",
-                    "user": "{input}",
-                    "assistant": "{output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "You are a legal expert. Determine if the provided legal holding is correct for the given case, and answer with Yes or No.",
+                        "user": "{input}",
+                        "assistant": "{output}"
+                    },
+                    {
+                        "system": "As a legal analyst, evaluate whether the given legal holding correctly applies to this case.",
+                        "user": "Case and holding:\n{input}",
+                        "assistant": "Is this holding correct? {output}"
+                    },
+                    {
+                        "system": "You are a legal professional. Assess if the proposed holding matches the case facts.",
+                        "user": "Review this case and holding:\n{input}",
+                        "assistant": "The holding is {output} correct for this case."
+                    }
+                ]
             }
         else:  # generation task
             processed_dataset = dataset.map(self._process_for_generation)
@@ -247,11 +324,23 @@ class LexGlueLoader(BaseDataLoader):
                 "task": "generation",
                 "task_type": "text_generation",
                 "metrics": ["rouge", "bleu"],
-                "prompt_template": {
-                    "system": "You are a legal expert. Generate an appropriate legal holding for the given case.",
-                    "user": "Legal Context: {input}",
-                    "assistant": "Legal Holding: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "You are a legal expert. Generate an appropriate legal holding for the given case.",
+                        "user": "Legal Context: {input}",
+                        "assistant": "Legal Holding: {output}"
+                    },
+                    {
+                        "system": "As an experienced legal professional, write a suitable legal holding based on the case details.",
+                        "user": "Case details:\n{input}",
+                        "assistant": "Based on the case, the appropriate holding is: {output}"
+                    },
+                    {
+                        "system": "You are a legal writer specializing in drafting holdings. Create a holding that matches the case context.",
+                        "user": "Review this case context:\n{input}",
+                        "assistant": "After reviewing the case, I draft the following holding: {output}"
+                    }
+                ]
             }
         
         return processed_dataset, config
@@ -331,11 +420,23 @@ class MedNLILoader(BaseDataLoader):
                 "task_type": "natural_language_inference",
                 "metrics": ["accuracy", "f1"],
                 "labels": ["entailment", "contradiction", "neutral"],
-                "prompt_template": {
-                    "system": "You are a medical expert. Determine the logical relationship between the premise and hypothesis.",
-                    "user": "{input}",
-                    "assistant": "The relationship is: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "You are a medical expert. Determine the logical relationship between the premise and hypothesis.",
+                        "user": "{input}",
+                        "assistant": "The relationship is: {output}"
+                    },
+                    {
+                        "system": "As a medical professional, analyze whether the hypothesis follows from, contradicts, or is neutral to the premise.",
+                        "user": "Medical statements:\n{input}",
+                        "assistant": "After analysis, the relationship between these statements is: {output}"
+                    },
+                    {
+                        "system": "You are a clinical reasoning expert. Evaluate the logical connection between these medical statements.",
+                        "user": "Please analyze:\n{input}",
+                        "assistant": "Based on medical knowledge, these statements have a {output} relationship."
+                    }
+                ]
             }
         else:  # classification task
             processed_dataset = dataset.map(self._process_for_classification)
@@ -345,11 +446,23 @@ class MedNLILoader(BaseDataLoader):
                 "task_type": "classification",
                 "metrics": ["accuracy"],
                 "num_classes": 3,
-                "prompt_template": {
-                    "system": "Analyze the logical relationship between the medical context and the statement.",
-                    "user": "{input}",
-                    "assistant": "{output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "Analyze the logical relationship between the medical context and the statement.",
+                        "user": "{input}",
+                        "assistant": "{output}"
+                    },
+                    {
+                        "system": "As a medical expert, determine how the given statement relates to the medical context.",
+                        "user": "Review these medical statements:\n{input}",
+                        "assistant": "My analysis shows that {output}"
+                    },
+                    {
+                        "system": "You are a healthcare professional. Evaluate the relationship between these medical statements.",
+                        "user": "Medical context and statement:\n{input}",
+                        "assistant": "From a clinical perspective, {output}"
+                    }
+                ]
             }
         
         return processed_dataset, config
@@ -445,39 +558,87 @@ class PubMedQALoader(BaseDataLoader):
             "qa": {
                 "task_type": "question_answering",
                 "metrics": ["rouge", "bleu", "meteor"],
-                "prompt_template": {
-                    "system": "You are a medical expert. Answer the question based on the provided context.",
-                    "user": "{input}",
-                    "assistant": "Based on the provided information: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "You are a medical expert. Answer the question based on the provided context.",
+                        "user": "{input}",
+                        "assistant": "Based on the provided information: {output}"
+                    },
+                    {
+                        "system": "As a medical researcher, provide an evidence-based answer using the given context.",
+                        "user": "Research question:\n{input}",
+                        "assistant": "According to the medical literature: {output}"
+                    },
+                    {
+                        "system": "You are a healthcare professional specializing in medical literature analysis.",
+                        "user": "Please answer based on this context:\n{input}",
+                        "assistant": "After analyzing the medical literature, I conclude: {output}"
+                    }
+                ]
             },
             "classification": {
                 "task_type": "text_classification",
                 "metrics": ["accuracy", "f1"],
                 "labels": ["BACKGROUND", "METHODS", "RESULTS"],
-                "prompt_template": {
-                    "system": "Classify the given medical text passage into its appropriate section type.",
-                    "user": "Text: {input}",
-                    "assistant": "Section: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "Classify the given medical text passage into its appropriate section type.",
+                        "user": "Text: {input}",
+                        "assistant": "Section: {output}"
+                    },
+                    {
+                        "system": "As a medical paper expert, identify which section this text belongs to.",
+                        "user": "Medical text passage:\n{input}",
+                        "assistant": "This passage belongs to the {output} section."
+                    },
+                    {
+                        "system": "You are a medical research paper analyst. Categorize this text into the correct section.",
+                        "user": "Analyze this passage:\n{input}",
+                        "assistant": "This text is part of the {output} section of the research paper."
+                    }
+                ]
             },
             "summarization": {
                 "task_type": "text_summarization",
                 "metrics": ["rouge", "bleu"],
-                "prompt_template": {
-                    "system": "Summarize the key findings from the medical research text.",
-                    "user": "{input}",
-                    "assistant": "Summary: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "Summarize the key findings from the medical research text.",
+                        "user": "{input}",
+                        "assistant": "Summary: {output}"
+                    },
+                    {
+                        "system": "As a medical researcher, create a concise summary of the main points.",
+                        "user": "Medical text to summarize:\n{input}",
+                        "assistant": "Key findings: {output}"
+                    },
+                    {
+                        "system": "You are a medical literature expert. Provide a comprehensive yet concise summary.",
+                        "user": "Please summarize this medical text:\n{input}",
+                        "assistant": "Research summary: {output}"
+                    }
+                ]
             },
             "mesh_prediction": {
                 "task_type": "multi_label_classification",
                 "metrics": ["precision", "recall", "f1"],
-                "prompt_template": {
-                    "system": "Predict relevant Medical Subject Headings (MeSH terms) for the given medical text.",
-                    "user": "{input}",
-                    "assistant": "Relevant MeSH terms: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "Predict relevant Medical Subject Headings (MeSH terms) for the given medical text.",
+                        "user": "{input}",
+                        "assistant": "Relevant MeSH terms: {output}"
+                    },
+                    {
+                        "system": "As a medical indexing expert, identify appropriate MeSH terms for this content.",
+                        "user": "Medical content:\n{input}",
+                        "assistant": "Applicable MeSH terms: {output}"
+                    },
+                    {
+                        "system": "You are a MeSH terminology specialist. List relevant medical subject headings.",
+                        "user": "Analyze this medical text:\n{input}",
+                        "assistant": "Based on the content, the relevant MeSH terms are: {output}"
+                    }
+                ]
             }
         }
 
@@ -666,38 +827,86 @@ class CCELoader(BaseDataLoader):
             "classification": {
                 "task_type": "text_classification",
                 "metrics": ["accuracy", "f1"],
-                "prompt_template": {
-                    "system": "Classify the security configuration type based on the description.",
-                    "user": "Configuration: {input}",
-                    "assistant": "Configuration type: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "Classify the security configuration type based on the description.",
+                        "user": "Configuration: {input}",
+                        "assistant": "Configuration type: {output}"
+                    },
+                    {
+                        "system": "As a security expert, categorize this configuration into its appropriate type.",
+                        "user": "Security config:\n{input}",
+                        "assistant": "This is a {output} type configuration."
+                    },
+                    {
+                        "system": "You are a security configuration analyst. Determine the configuration category.",
+                        "user": "Analyze this config:\n{input}",
+                        "assistant": "Based on the description, this falls under the {output} category."
+                    }
+                ]
             },
             "requirement_extraction": {
                 "task_type": "information_extraction",
                 "metrics": ["precision", "recall", "f1"],
-                "prompt_template": {
-                    "system": "Extract the technical mechanisms and parameters from the security configuration.",
-                    "user": "{input}",
-                    "assistant": "Technical mechanisms: {output[technical_mechanisms]}\nParameters: {output[parameters]}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "Extract the technical mechanisms and parameters from the security configuration.",
+                        "user": "{input}",
+                        "assistant": "Technical mechanisms: {output[technical_mechanisms]}\nParameters: {output[parameters]}"
+                    },
+                    {
+                        "system": "As a security analyst, identify and list the technical components and parameters in this configuration.",
+                        "user": "Security configuration:\n{input}",
+                        "assistant": "I've identified the following:\nTechnical mechanisms: {output[technical_mechanisms]}\nRequired parameters: {output[parameters]}"
+                    },
+                    {
+                        "system": "You are a security configuration expert. Parse and extract the key technical elements.",
+                        "user": "Parse this configuration:\n{input}",
+                        "assistant": "Configuration analysis:\n- Technical mechanisms: {output[technical_mechanisms]}\n- Configuration parameters: {output[parameters]}"
+                    }
+                ]
             },
             "reference_prediction": {
                 "task_type": "multi_label_classification",
                 "metrics": ["precision", "recall", "f1"],
-                "prompt_template": {
-                    "system": "Predict relevant security standards and guidelines for the configuration.",
-                    "user": "{input}",
-                    "assistant": "Relevant standards: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "Predict relevant security standards and guidelines for the configuration.",
+                        "user": "{input}",
+                        "assistant": "Relevant standards: {output}"
+                    },
+                    {
+                        "system": "As a security compliance expert, identify applicable security standards for this configuration.",
+                        "user": "Configuration details:\n{input}",
+                        "assistant": "This configuration is related to the following standards: {output}"
+                    },
+                    {
+                        "system": "You are a security standards specialist. List all relevant security guidelines.",
+                        "user": "Review this security config:\n{input}",
+                        "assistant": "Based on the configuration, these standards apply: {output}"
+                    }
+                ]
             },
             "platform_detection": {
                 "task_type": "single_label_classification",
                 "metrics": ["accuracy"],
-                "prompt_template": {
-                    "system": "Determine the platform this security configuration applies to.",
-                    "user": "{input}",
-                    "assistant": "Platform: {output}"
-                }
+                "prompt_template": [
+                    {
+                        "system": "Determine the platform this security configuration applies to.",
+                        "user": "{input}",
+                        "assistant": "Platform: {output}"
+                    },
+                    {
+                        "system": "As a system analyst, identify the target platform for this security configuration.",
+                        "user": "Configuration:\n{input}",
+                        "assistant": "This configuration is designed for {output} platforms."
+                    },
+                    {
+                        "system": "You are a platform compatibility expert. Specify the intended platform.",
+                        "user": "Analyze this config:\n{input}",
+                        "assistant": "This security configuration is compatible with {output}."
+                    }
+                ]
             }
         }
         

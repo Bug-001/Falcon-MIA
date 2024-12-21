@@ -280,7 +280,9 @@ class ObfuscationAttack(ICLAttackStrategy):
             # 为主表格创建新行
             main_row = self.logger.new_row(results_table)
             
-            icl_prompt = self.generate_icl_prompt(icl_samples)
+            # 根据索引判断是否是训练数据
+            is_train = i < train_length
+            icl_prompt = self.generate_icl_prompt(icl_samples, is_train=is_train)
             
             # 经研究发现混淆文本越长越好
             input_text = attack_sample["input"].split()

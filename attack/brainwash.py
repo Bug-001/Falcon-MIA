@@ -31,21 +31,23 @@ class BrainwashAttack(ICLAttackStrategy):
         return wrong_label_in_response and other_labels_not_in_response
 
     def binary_search_iterations(self, model: ModelInterface, prompt: List[Dict[str, str]], 
-                                 attack_sample: Dict[str, str], wrong_label: str) -> int:
+                                 attack_sample: Dict[str, str], wrong_label: str, is_train: bool) -> int:
+        template = self.train_template if is_train else self.test_template
+
         def generate_prompt_and_request(iterations):
             query_prompt = prompt.copy()
             for _ in range(iterations):
                 query_prompt = query_prompt + [{
                     "role": "user",
-                    "content": self.user_prompt.format(input=attack_sample["input"])
+                    "content": template['user'].format(input=attack_sample["input"])
                 }, {
                     "role": "assistant",
-                    "content": self.assistant_prompt.format(output=wrong_label)
+                    "content": template['assistant'].format(output=wrong_label)
                 }]
             query_prompt = query_prompt + [{
                 "role": "user",
                 # XXX
-                "content": self.user_prompt.format(input=attack_sample["input"]) + " Type:"
+                "content": template['user'].format(input=attack_sample["input"]) + " Type:"
             }]
             response = model.query(query_prompt, "Brainwash Attack")[0].split()[0]
             return response
@@ -71,10 +73,16 @@ class BrainwashAttack(ICLAttackStrategy):
     def attack(self, model: ModelInterface):
         self.label_translation = self.sdm.get_config()['label_map']
 
-        data_loader = self.data_loader.train() + self.data_loader.test()
-        for icl_samples, attack_sample, is_member in tqdm(data_loader):
+        train_data = self.data_loader.train()
+        test_data = self.data_loader.test()
+        data_list = train_data + test_data
+        train_length = len(train_data)
+        
+        for i, (icl_samples, attack_sample, is_member) in enumerate(tqdm(data_list)):
             self.logger.new_row("brainwash-attack_results")
-            icl_prompt = self.generate_icl_prompt(icl_samples)
+            # 根据索引判断是否是训练数据
+            is_train = i < train_length
+            icl_prompt = self.generate_icl_prompt(icl_samples, is_train=is_train)
             
             correct_label = attack_sample["output"]
             wrong_labels = [label for label in self.label_translation.values() if label != correct_label]
@@ -85,7 +93,7 @@ class BrainwashAttack(ICLAttackStrategy):
 
             iterations = []
             for wrong_label in selected_wrong_labels:
-                iteration = self.binary_search_iterations(model, icl_prompt, attack_sample, wrong_label)
+                iteration = self.binary_search_iterations(model, icl_prompt, attack_sample, wrong_label, is_train=is_train)
                 iterations.append(iteration)
             
             avg_iterations = np.mean(iterations)

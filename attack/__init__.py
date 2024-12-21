@@ -149,9 +149,11 @@ class ICLAttackStrategy(ABC):
                 selected_attack_sample=self.attack_config.get('selected_attack_sample', 0)
             )
 
-        self.user_prompt = self.data_config['prompt_template']['user']
-        self.assistant_prompt = self.data_config['prompt_template']['assistant']
-    
+        # 为训练和测试选择不同的模板
+        templates = self.data_config['prompt_template']
+        self.test_template = templates[-1]  # 测试总是使用最后一个模板
+        self.train_template = templates[-2]  # 训练总是使用倒数第二个模板
+
     def remove_punctuation(self, word: str):
         return word.translate(str.maketrans(string.punctuation, ' ' * len(string.punctuation)))
     
@@ -171,20 +173,22 @@ class ICLAttackStrategy(ABC):
             }])
         return ret
 
-    def generate_icl_prompt(self, icl_samples: Dataset):
+    def generate_icl_prompt(self, icl_samples: Dataset, is_train: bool = True):
+        template = self.train_template if is_train else self.test_template
+        
         prompt = [{
             "role": "system",
-            "content": self.data_config['prompt_template']['system']
+            "content": template['system']
         }]
 
         for sample in icl_samples:
             prompt.append({
                 "role": "user",
-                "content": self.user_prompt.format(input=sample["input"])
+                "content": template['user'].format(input=sample["input"])
             })
             prompt.append({
                 "role": "assistant",
-                "content": self.assistant_prompt.format(output=sample["output"])
+                "content": template['assistant'].format(output=sample["output"])
             })
 
         return prompt
