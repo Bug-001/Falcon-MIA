@@ -26,16 +26,22 @@ class ICLDataLoader:
         data = []
         icl_index = 0
         batch_num = batch_num // 2
-        for _ in range(batch_num):
+        for i in range(batch_num):
             self.atk_index = (self.atk_index + 1) % len(self.valid_dataset)
             attack_sample = self.valid_dataset.select([self.atk_index])
+
+            # 确定要替换的位置
+            replace_position = i % self.batch_size
 
             # 令该样本为member
             is_member = True
             icl_samples = self._get_batch(dataset, icl_index)
             icl_index = (icl_index + self.batch_size) % len(dataset)
-            # 用attack_sample替换icl_samples中的最后一项，
-            icl_samples = concatenate_datasets([icl_samples.select(range(self.batch_size-1)), attack_sample])
+            # 用attack_sample替换icl_samples中的指定位置
+            icl_samples_dict = icl_samples.to_dict()
+            for key in icl_samples_dict.keys():
+                icl_samples_dict[key][replace_position] = attack_sample[key][0]
+            icl_samples = Dataset.from_dict(icl_samples_dict, features=icl_samples.features)
             attack_sample = attack_sample[0]
             data.append((icl_samples, attack_sample, is_member))
             
