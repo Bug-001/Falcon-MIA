@@ -13,6 +13,18 @@ from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
 import json
+import multiprocessing
+from multiprocessing import current_process
+import signal
+
+class GracefulKiller:
+    kill_now = False
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, *args):
+        self.kill_now = True
 
 @dataclass
 class ExperimentTask:
@@ -40,6 +52,8 @@ class ExperimentRunner:
         parallel_config = self.config.get('parallel', {})
         self.parallel_enabled = parallel_config.get('enable', False)
         self.max_workers = parallel_config.get('max_workers', 1) if self.parallel_enabled else 1
+
+        self.killer = GracefulKiller()
 
     def _load_main_function(self):
         """获取程序主函数句柄"""
@@ -232,10 +246,10 @@ class ExperimentRunner:
         # 如果需要重新运行，且目录已存在，更新实验名称
         if Path(exp_name).exists():
             new_exp_name = self._update_experiment_name(exp_name)
-            print(f"Updating experiment name from {exp_name} to {new_exp_name}")
+            print(f"[Process {current_process().name}] Updating experiment name from {exp_name} to {new_exp_name}")
             exp_name = new_exp_name
             
-        print(f"\nRunning experiment: {exp_name}")
+        print(f"\n[Process {current_process().name}] Running experiment: {exp_name}")
         
         # 准备参数
         current_params = []
@@ -247,27 +261,50 @@ class ExperimentRunner:
         # 运行实验
         try:
             self.main_func(*current_params, exp_name)
-            print(f"Experiment {exp_name} completed successfully")
+            print(f"[Process {current_process().name}] Experiment {exp_name} completed successfully")
         except Exception as e:
-            print(f"Error in experiment {exp_name}: {str(e)}")
+            print(f"[Process {current_process().name}] Error in experiment {exp_name}: {str(e)}")
             raise
 
     def run(self):
         """运行所有实验（支持并行）"""
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [
-                executor.submit(self._run_single_experiment, param_combo)
-                for param_combo in self._generate_param_combinations()
-            ]
-            
-            for future in concurrent.futures.as_completed(futures):
-                future.result()
+        try:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = []
+                for param_combo in self._generate_param_combinations():
+                    if self.killer.kill_now:
+                        break
+                    futures.append(
+                        executor.submit(self._run_single_experiment, param_combo)
+                    )
+
+                for future in concurrent.futures.as_completed(futures):
+                    if self.killer.kill_now:
+                        print("\nShutting down gracefully...")
+                        # 取消所有未完成的任务
+                        for f in futures:
+                            f.cancel()
+                        break
+                    try:
+                        future.result(timeout=60)  # 添加超时限制
+                    except concurrent.futures.TimeoutError:
+                        print("A task timed out")
+                    except Exception as e:
+                        print(f"Task failed with: {e}")
+
+        except KeyboardInterrupt:
+            print("\nCaught KeyboardInterrupt, shutting down...")
+            return
+        finally:
+            # 确保清理所有资源
+            print("Cleaning up resources...")
 
 def main(params):    
     runner = ExperimentRunner(params)
     runner.run()
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn')
     parser = argparse.ArgumentParser()
     parser.add_argument('--params', default='params.yaml', help='Path to parameters config file')
     args = parser.parse_args()
