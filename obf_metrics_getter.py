@@ -15,9 +15,8 @@ def get_folders(root_dir: str) -> list:
     root = Path(root_dir)
     return [f for f in root.iterdir() if f.is_dir()]
 
-def main():
+def main(model_name: str):
     root_dir = Path("cache/log")
-    model_name = 'Meta-Llama-3-8B-Instruct/obf_technique_test'
     folders = get_folders(root_dir/model_name)
 
     l = {}
@@ -43,4 +42,7 @@ def load_yaml_config(config_path: str) -> Dict[str, Any]:
         return yaml.safe_load(file)
 
 if __name__ == "__main__":
-    main()
+    args = argparse.ArgumentParser()
+    args.add_argument("--model-name", type=str, default="Meta-Llama-3-8B-Instruct-concat/ablation/selected_obf_text(all)/obf_technique_test")
+    args = args.parse_args()
+    main(args.model_name)
