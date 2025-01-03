@@ -60,15 +60,15 @@ def main(data_config, attack_config, query_config, ablation_vars: List[str], res
     root_dir = Path("cache/log")
     
     # 整理文件夹
-    # organize_folders(root_dir, result_dir, ablation_vars)
+    organize_folders(root_dir, result_dir, ablation_vars)
     
     # 对ablation目录下的每个子文件夹进行处理
     ablation_dir = root_dir / result_dir / "ablation"
-    # for sub_dir in get_folders(ablation_dir):
+    for sub_dir in get_folders(ablation_dir):
         
-    #     print(f"Processing {sub_dir.name}...")
-    #     # 直接调用obf-multi-techniques的main函数
-    #     obf_multi_techniques.main(data_config, attack_config, query_config, model_name=f"{result_dir}/ablation/{sub_dir.name}")
+        print(f"Processing {sub_dir.name}...")
+        # 直接调用obf-multi-techniques的main函数
+        obf_multi_techniques.main(data_config, attack_config, query_config, model_name=f"{result_dir}/ablation/{sub_dir.name}")
 
     # 处理完成后，使用metrics_getter整合所有结果
     for sub_dir in get_folders(ablation_dir):
