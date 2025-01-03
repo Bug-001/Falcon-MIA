@@ -531,7 +531,6 @@ class StringHelper:
         similarities['cosine'] = self.semantic_cosine_similarity(data1, data2)
         similarities['euclidean'] = self.semantic_euclidean_similarity(data1, data2)
         similarities['manhattan'] = self.semantic_manhattan_similarity(data1, data2)
-        similarities['dot_product'] = self.semantic_dot_product_similarity(data1, data2)
         
         return similarities
 

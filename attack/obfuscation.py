@@ -279,17 +279,24 @@ class ObfuscationAttack(ICLAttackStrategy):
         for i, (icl_samples, attack_sample, is_member) in enumerate(tqdm(data_loader)):
             # 为主表格创建新行
             main_row = self.logger.new_row(results_table)
-            
+
             # 根据索引判断是否是训练数据
             is_train = i < train_length
             icl_prompt = self.generate_icl_prompt(icl_samples, is_train=is_train)
             
-            # 经研究发现混淆文本越长越好
+            # 选择待混淆文本
             input_text = attack_sample["input"].split()
             output_text = attack_sample["output"].split()
-            original_text = input_text if len(input_text) > len(output_text) else output_text
+            if self.attack_config.get('selected_obf_text', 'all') == 'input':
+                original_text = input_text
+            elif self.attack_config.get('selected_obf_text', 'all') == 'output':
+                original_text = output_text
+            elif self.attack_config.get('selected_obf_text', 'all') == 'longest':
+                original_text = input_text if len(input_text) > len(output_text) else output_text
+            else: # 'all'
+                original_text = input_text + output_text
             original_text = " ".join(original_text)
-
+            
             # 记录并打印基本信息
             self.logger.add("sample_id", main_row)
             self.logger.add("type", "train" if i < train_length else "test")
@@ -307,8 +314,11 @@ class ObfuscationAttack(ICLAttackStrategy):
                     "content": self.attack_template.format(input=obfuscated_text)
                 }]
                 response = model.query(query_prompt, "Obfuscation Attack")[0]
-                response = response.split('\n')[0]  # 只使用第一行
-                similarities = self.shelper.calculate_overall_similarity_dict(original_text, response)
+                response_first_line = response.split('\n')[0]
+                similarities_first_line = self.shelper.calculate_overall_similarity_dict(original_text, response_first_line)
+                similarities_all_lines = self.shelper.calculate_overall_similarity_dict(original_text, response)
+                # 各指标取最大者
+                similarities = {k: max(v, similarities_first_line[k]) for k, v in similarities_all_lines.items()}
                 
                 # 记录level的详细信息
                 self.logger.add("sample_id", main_row)
