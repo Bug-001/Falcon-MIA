@@ -16,6 +16,7 @@ from .tools.utils import get_logger
 
 logger = get_logger("query", "info")
 init()
+load_dotenv()
 
 class ModelClient(ABC):
     @abstractmethod
@@ -23,19 +24,36 @@ class ModelClient(ABC):
         pass
 
 class OpenAIClient(ModelClient):
-    def __init__(self, api_key=None):
-        self.client = OpenAI(api_key=api_key)
+    def __init__(self, api_key=None, base_url=None):
+        # 允许通过参数设置base_url
+        client_params = {"api_key": api_key}
+        if base_url:
+            client_params["base_url"] = base_url
+        self.client = OpenAI(**client_params)
 
     def chat_completion(self, messages, **kwargs):
-        try:
-            completion = self.client.chat.completions.create(
-                messages=messages,
-                **kwargs
-            )
-            return completion.choices[0].message.content
-        except Exception as e:
-            logger.warning(f"Error during OpenAI API request: {e}")
-            return None
+        while True:
+            try:
+                completion = self.client.chat.completions.create(
+                    messages=messages,
+                    **kwargs
+                )
+                return completion.choices[0].message.content
+            except openai.RateLimitError as e:
+                # 遇到限流错误时等待一小段时间后重试
+                if 'rate limit' in str(e):
+                    time.sleep(0.5)
+                else:
+                    logger.warning(f"Rate limit exceeded, retrying in 2 hours... Error: {e}")
+                    time.sleep(7200)
+            except openai.APITimeoutError as e:
+                # API超时，等待后重试
+                logger.warning(f"API timeout, retrying in 3 seconds... Error: {e}")
+                time.sleep(3)
+            except openai.InternalServerError as e:
+                # 一般为自定义错误，等待后重试
+                logger.warning(f"Internal server error, retrying in 0.5 seconds... Error: {e}")
+                time.sleep(0.5)
 
 class LocalClient(ModelClient):
     def __init__(self, base_url):
@@ -54,7 +72,7 @@ class LocalClient(ModelClient):
                     print("Server is not connected. Retrying in 30 seconds...")
                     time.sleep(30)
                 else:
-                    raise
+                    raise e
 
 class InfinigenceClient(ModelClient):
     def __init__(self, api_key):
@@ -136,7 +154,12 @@ class QueryProcessor:
     def _get_client(self):
         model_type = self.query["model_type"]
         if model_type == "openai":
-            return OpenAIClient(api_key=get_api_key("openai"))
+            # 从配置中获取base_url
+            base_url = self.query.get("base_url")
+            return OpenAIClient(
+                api_key=get_api_key("openai"),
+                base_url=base_url
+            )
         elif model_type == "aiml":
             return AIMLClient(api_key=get_api_key("aiml"))
         elif model_type == "local":
@@ -284,7 +307,6 @@ class ModelInterface:
         return llm_response
 
 if __name__ == "__main__":
-    load_dotenv()
     args = parse_arguments()
     query = read_yaml(args.config)
 

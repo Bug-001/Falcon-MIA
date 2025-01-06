@@ -16,7 +16,7 @@ import json
 import multiprocessing
 from multiprocessing import current_process
 import signal
-
+import traceback
 class GracefulKiller:
     kill_now = False
     def __init__(self):
@@ -264,6 +264,7 @@ class ExperimentRunner:
             print(f"[Process {current_process().name}] Experiment {exp_name} completed successfully")
         except Exception as e:
             print(f"[Process {current_process().name}] Error in experiment {exp_name}: {str(e)}")
+            print(traceback.format_exc())
             raise
 
     def run(self):
