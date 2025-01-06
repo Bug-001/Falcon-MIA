@@ -43,6 +43,6 @@ def load_yaml_config(config_path: str) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
-    args.add_argument("--model-name", type=str, default="Meta-Llama-3-8B-Instruct-concat/ablation/selected_obf_text(all)/obf_technique_test")
+    args.add_argument("--dir", type=str, default="Meta-Llama-3-8B-Instruct-concat/ablation/selected_obf_text(all)/obf_technique_test")
     args = args.parse_args()
-    main(args.model_name)
+    main(args.dir)

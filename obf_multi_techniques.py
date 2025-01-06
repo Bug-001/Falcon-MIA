@@ -36,10 +36,10 @@ def get_folder_name(info: Dict[str, str]) -> str:
     parts = []
     
     # 优先添加task和dataset
-    if 'dataset' in info:
-        parts.append(f"dataset({info['dataset']})")
     if 'task' in info:
         parts.append(f"task({info['task']})")
+    if 'dataset' in info:
+        parts.append(f"dataset({info['dataset']})")
         
     # 添加其他键值对
     other_parts = []
@@ -175,10 +175,10 @@ if __name__ == "__main__":
     parser.add_argument('--query', help='Path to the query config file', default="query.yaml")
     parser.add_argument("--log-level", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         default='INFO', help="Set the logging level")
-    parser.add_argument("--output", help="Output directory for all results", default=None)
+    parser.add_argument("--dir", help="Output directory for all results", default=None)
     args = parser.parse_args()
 
     data_config = load_yaml_config(args.data)
     attack_config = load_yaml_config(args.attack)
     query_config = load_yaml_config(args.query)
-    main(data_config, attack_config, query_config)
+    main(data_config, attack_config, query_config, args.dir)
