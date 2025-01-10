@@ -29,12 +29,13 @@ def main(model_name: str):
         except FileNotFoundError:
             print("File not found, skipping", folder)
             continue
-        acc = metric_data[0]['accuracy']
-        l[folder.name] = acc
+        acc = metric_data[0]['avg_accuracy'] * 100
+        std = metric_data[0]['std_accuracy'] * 100
+        l[folder.name] = (acc, std)
 
     ans = sorted(l.items(), key=lambda x: x[1], reverse=True)
     for k, v in ans:
-        print(k, v)
+        print(k, f"{v[0]:.1f}±{v[1]:.1f}")
 
 
 def load_yaml_config(config_path: str) -> Dict[str, Any]:
