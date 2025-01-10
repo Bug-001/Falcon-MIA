@@ -1,4 +1,5 @@
 import argparse
+import random
 import yaml
 import requests
 import os
@@ -26,10 +27,14 @@ class ModelClient(ABC):
 class OpenAIClient(ModelClient):
     def __init__(self, api_key=None, base_url=None):
         # 允许通过参数设置base_url
-        client_params = {"api_key": api_key}
+        self.api_key = api_key
+        self.base_url = base_url
+        self.client_params = {"api_key": api_key}
         if base_url:
-            client_params["base_url"] = base_url
-        self.client = OpenAI(**client_params)
+            self.client_params["base_url"] = base_url
+        self.client = OpenAI(**self.client_params)
+        self.error_count = 0
+        self.error_threshold = 5
 
     def chat_completion(self, messages, **kwargs):
         while True:
@@ -38,13 +43,18 @@ class OpenAIClient(ModelClient):
                     messages=messages,
                     **kwargs
                 )
-                return completion.choices[0].message.content
+                self.error_count = 0  # 成功后重置错误计数
+                ret = completion.choices[0].message.content
+                if ret == None:
+                    logger.warning("Failed to get a response from the model. Details:")
+                    logger.warning(completion)
+                return ret
             except openai.RateLimitError as e:
                 # 遇到限流错误时等待一小段时间后重试
                 if 'rate limit' in str(e):
                     time.sleep(0.5)
                 else:
-                    logger.warning(f"Rate limit exceeded, retrying in 2 hours... Error: {e}")
+                    logger.warning(f"Credit limit exceeded, retrying in 2 hours... Error: {e}")
                     time.sleep(7200)
             except openai.APITimeoutError as e:
                 # API超时，等待后重试
@@ -52,8 +62,19 @@ class OpenAIClient(ModelClient):
                 time.sleep(3)
             except openai.InternalServerError as e:
                 # 一般为自定义错误，等待后重试
-                logger.warning(f"Internal server error, retrying in 0.5 seconds... Error: {e}")
-                time.sleep(0.5)
+                self.error_count += 1
+                logger.warning(f"Internal server error ({self.error_count}/{self.error_threshold}), retrying... Error: {e}")
+                
+                if self.error_count >= self.error_threshold:
+                    logger.warning("Too many errors, recreating client...")
+                    self.client.close()
+                    self.client = OpenAI(**self.client_params)
+                    self.error_count = 0
+                
+                time.sleep(random.randint(20, 40))
+            except openai.APIStatusError as e:
+                logger.warning(f"Error during OpenAI API request: {e}")
+                return str(e)
 
 class LocalClient(ModelClient):
     def __init__(self, base_url):
@@ -117,7 +138,6 @@ class AIMLClient(ModelClient):
             except Exception as e:
                 logger.warning(f"Error during AI/ML API request: {type(e)}")
                 raise e
-                return None
 
 class AnthropicClient(ModelClient):
     def __init__(self, api_key):
@@ -175,15 +195,12 @@ class QueryProcessor:
             raise ValueError(f"Unknown model_type: {model_type}")
 
     def process_query(self):
-        ret = None
-        while ret == None:
-            if self.query['query_type'] == 'chat':
-                ret = self.process_chats()
-            elif self.query['query_type'] == 'instruction':
-                ret = self.process_instruction()
-            else:
-                raise ValueError(f"Unsupported query type: {self.query['query_type']}")
-        return ret
+        if self.query['query_type'] == 'chat':
+            return self.process_chats()
+        elif self.query['query_type'] == 'instruction':
+            return self.process_instruction()
+        else:
+            raise ValueError(f"Unsupported query type: {self.query['query_type']}")
 
     def _get_stop_pattern(self, model_name):
         # 根据模型名称设置默认的stop pattern
@@ -227,44 +244,36 @@ class QueryProcessor:
                     n=self.query.get('n', 1),
                     stop=self.query.get('stop', []) + stop_pattern,
                 )
-                if response is not None:
-                    return response
-                else:
-                    logger.warning("Failed to get a response from the model.")
-                    return None
+                if response == None:
+                    return "[FAILED] The model returned None."
+                return response
 
             for message in messages:
                 if message['role'] == 'assistant' and message['content'] == '***TBA***':
                     # 如果是assistant的TBA消息,则将前述上文发送到LLM
                     response = send_to_llm(updated_messages)
-                    if response:
-                        updated_messages.append({"role": "assistant", "content": response})
-                        llm_responses.append(response)
-                        if self.full_output:
-                            print(f"Assistant: " + Fore.YELLOW + f"{response}".strip() + Fore.RESET)
-                    else:
-                        logger.warning("Failed to get a response from the model.")
+                    updated_messages.append({"role": "assistant", "content": response})
+                    llm_responses.append(response)
+                    if self.full_output:
+                        print(f"Assistant: " + Fore.YELLOW + f"{response}" + Fore.RESET)
                 else:
                     updated_messages.append(message)
                     if self.full_output:
-                        print(f"{message['role'].capitalize()}: {message['content']}".strip())
+                        print(f"{message['role'].capitalize()}: {message['content']}")
 
             # Flush messages if the last message is not from the assistant
             if updated_messages[-1]['role'] != 'assistant':
                 response = send_to_llm(updated_messages)
-                if response is not None:
-                    updated_messages.append({"role": "assistant", "content": response})
-                    llm_responses.append(response)
-                    if self.full_output:
-                        print(f"Assistant: " + Fore.YELLOW + f"{response}".strip() + Fore.RESET)
-                else:
-                    logger.warning("Failed to get a response from the model.")
+                updated_messages.append({"role": "assistant", "content": response})
+                llm_responses.append(response)
+                if self.full_output:
+                    print(f"Assistant: " + Fore.YELLOW + f"{response}" + Fore.RESET)
 
             all_responses.append(llm_responses)
 
         return all_responses
 
-    def process_instruction(self):
+    def process_instruction(self) -> list:
         # TODO: Implement instruction processing
         raise NotImplementedError("Instruction query type is not yet supported.")
 
