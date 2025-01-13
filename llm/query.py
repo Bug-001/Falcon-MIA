@@ -51,11 +51,9 @@ class OpenAIClient(ModelClient):
                 return ret
             except openai.RateLimitError as e:
                 # 遇到限流错误时等待一小段时间后重试
-                if 'rate limit' in str(e):
-                    time.sleep(0.5)
-                else:
-                    logger.warning(f"Credit limit exceeded, retrying in 2 hours... Error: {e}")
-                    time.sleep(7200)
+                sleep_time = random.uniform(5, 10)
+                logger.warning(f"Credit limit exceeded, retrying in {sleep_time} seconds... Error: {e}")
+                time.sleep(sleep_time)
             except openai.APITimeoutError as e:
                 # API超时，等待后重试
                 logger.warning(f"API timeout, retrying in 3 seconds... Error: {e}")
