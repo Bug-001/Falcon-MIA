@@ -8,24 +8,17 @@ def load_config(config_file):
         return yaml.safe_load(f)
 
 def select_chat_template(model_name):
-    # 定义模型名称与模板文件的映射
-    template_mapping = {
-        'llama': 'llama.jinja',
-        'claude': 'claude.jinja',
-        'mistral': 'mistral.jinja',
-        'vicuna': 'llama.jinja',
-        'gpt2-xl': 'gpt2-xl.jinja',
-        'qwen': 'qwen.jinja',
-        # 可以根据需要添加更多映射
-    }
-    
-    # 默认模板
+    # 自动获取templates目录下的所有模板文件
+    template_dir = os.path.join(os.path.dirname(__file__), 'templates')
     default_template = 'general.jinja'
     
-    # 查找匹配的模板
-    for key, template in template_mapping.items():
-        if key in model_name.lower():
-            return os.path.join(os.path.dirname(__file__), 'templates', template)
+    # 遍历templates目录下的所有.jinja文件,寻找匹配项
+    for template_file in os.listdir(template_dir):
+        if template_file.endswith('.jinja'):
+            # 从文件名中提取模型名称(去掉.jinja后缀)
+            template_model = template_file[:-6]
+            if template_model in model_name.lower():
+                return os.path.join(os.path.dirname(__file__), 'templates', template_file)
     
     # 如果没有找到匹配的模板，返回默认模板
     return os.path.join(os.path.dirname(__file__), 'templates', default_template)
