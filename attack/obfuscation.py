@@ -224,7 +224,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         train_data_path = model_dir/"train_data.pkl"
         test_data_path = model_dir/"test_data.pkl"
         
-        if not os.path.exists(classfier_path):
+        if not os.path.exists(self.detector_dir/classfier_path):
             # 使用train_test_split划分数据
             train_data, test_data = train_test_split(
                 self.similarities_data,
@@ -356,6 +356,15 @@ class ObfuscationAttack(ICLAttackStrategy):
             # 添加到表格中
             self.logger.add(f"avg_{key}", avg_metrics[key], metrics_table)
             self.logger.add(f"std_{key}", std_metrics[key], metrics_table)
+
+        # 使用特征技术，分析混淆级别和相似度带来的影响
+        # XXX: Very confusing code...
+        self.analyze_feature_importance(
+            HFModelWrapper(self.classifiers[0]), # 只分析第一个
+            ObfuscationDataCollator()(self.similarities_data)['features'].to('cuda'),
+            list(self.similarities_data[0][0].keys()),
+            ['level'] + sorted(list(self.similarities_data[0][0].values())[0].keys()),
+        )
 
         # 保存结果
         self.logger.save()
