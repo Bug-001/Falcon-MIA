@@ -1,3 +1,5 @@
+from .common import *
+
 from . import ICLAttackStrategy
 
 class InquiryAttack(ICLAttackStrategy):
@@ -11,7 +13,8 @@ class InquiryAttack(ICLAttackStrategy):
         return self.inquiry_template.format(input=sample)
 
     def is_member_by_response(self, response):
-        words = [self.remove_punctuation(word.lower()) for word in response.split()]
+        words = [self.remove_punctuation(word.lower()) for word in self.remove_punctuation(response).split()]
+        print(words)
 
         if len(words) == 0:
             return None
@@ -38,7 +41,8 @@ class InquiryAttack(ICLAttackStrategy):
 
     @ICLAttackStrategy.cache_results
     def attack(self, model):
-        for icl_samples, attack_sample, is_member in tqdm(self.data_loader.test()):
+        data_loader = self.data_loader.train() + self.data_loader.test()
+        for icl_samples, attack_sample, is_member in tqdm(data_loader):
             icl_prompt = self.generate_icl_prompt(icl_samples)
             
             final_prompt = icl_prompt + [{
@@ -54,12 +58,33 @@ class InquiryAttack(ICLAttackStrategy):
                 self.results.append((random.random() < 0.5, is_member))
             
             # 添加日志输出
-            logger.info(f"Sample: {attack_sample['input']}")
-            logger.info(f"Model response: {response}")
-            logger.info(f"Is member: {is_member}, Predicted member: {pred_member}")
-            logger.info("-" * 50)
+            self.logger.info(f"Sample: {attack_sample['input']}")
+            self.logger.info(f"Final Prompt: {final_prompt}")
+            self.logger.info(f"Model response: {response}")
+            self.logger.info(f"Is member: {is_member}, Predicted member: {pred_member}")
+            self.logger.info("-" * 50)
 
     def evaluate(self):
         predictions = [bool(pred) for pred, _ in self.results]
         ground_truth = [bool(truth) for _, truth in self.results]
-        return EvaluationMetrics.calculate_advantage(predictions, ground_truth)
+        metrics = EvaluationMetrics.calculate_advantage(predictions, ground_truth)
+        # 计算ROC曲线和AUC
+        fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(ground_truth, predictions)
+        metrics['auc'] = roc_auc
+
+        # 计算log ROC
+        log_fpr, log_tpr, log_auc = EvaluationMetrics.calculate_log_roc_auc(ground_truth, predictions)
+
+        # 存储ROC和log ROC数据
+        metrics.update({
+            'fpr': fpr,
+            'tpr': tpr,
+            'roc_auc': roc_auc,
+            'log_fpr': log_fpr,
+            'log_tpr': log_tpr,
+            'log_auc': log_auc
+        })
+
+        self.logger.save_json('metrics.json', metrics)
+        self.logger.info(f"Metrics: {metrics}")
+        return metrics

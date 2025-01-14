@@ -238,23 +238,23 @@ class ICLAttackStrategy(ABC):
 
     @staticmethod
     def create(attack_config: Dict[str, Any]) -> 'ICLAttackStrategy':
-        # from .gap import GAPAttack
-        # from .inquiry import InquiryAttack
-        # from .repeat import RepeatAttack
+        from .gap import GAPAttack
+        from .inquiry import InquiryAttack
+        from .repeat import RepeatAttack
         # from .brainwash import BrainwashAttack
         from .hybrid import HybridAttack
         from .obfuscation import ObfuscationAttack
 
         attack_type = attack_config['type']
-        # if attack_type == 'GAP':
-        #     return GAPAttack(attack_config)
-        # elif attack_type == 'Inquiry':
-        #     return InquiryAttack(attack_config)
-        # elif attack_type == 'Repeat':
-        #     return RepeatAttack(attack_config)
+        if attack_type == 'GAP':
+            return GAPAttack(attack_config)
+        elif attack_type == 'Inquiry':
+            return InquiryAttack(attack_config)
+        elif attack_type == 'Repeat':
+            return RepeatAttack(attack_config)
         # elif attack_type == 'Brainwash':
         #     return BrainwashAttack(attack_config)
-        if attack_type == 'Hybrid':
+        elif attack_type == 'Hybrid':
             return HybridAttack(attack_config)
         elif attack_type == "Obfuscation":
             return ObfuscationAttack(attack_config)

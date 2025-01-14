@@ -85,17 +85,16 @@ class RepeatAttack(ICLAttackStrategy):
 
         # 计算log ROC
         log_fpr, log_tpr, log_auc = EvaluationMetrics.calculate_log_roc_auc(ground_truth, similarities)
-        metrics['log_auc'] = log_auc
 
         # 存储ROC和log ROC数据
-        self.roc_data = {
+        metrics.update({
             'fpr': fpr,
             'tpr': tpr,
             'roc_auc': roc_auc,
             'log_fpr': log_fpr,
             'log_tpr': log_tpr,
             'log_auc': log_auc
-        }
+        })
 
         # 绘制ROC和log ROC曲线
         # if self.attack_config.get('plot_roc', False):
@@ -104,5 +103,5 @@ class RepeatAttack(ICLAttackStrategy):
         #     EvaluationMetrics.plot_log_roc(log_fpr, log_tpr, log_auc, f'log_roc_curve_{self.__class__.__name__}.png')
 
         self.logger.save_json('metrics.json', metrics)
-
+        self.logger.info(f"Metrics: {metrics}")
         return metrics
