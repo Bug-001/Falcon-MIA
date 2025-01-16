@@ -92,6 +92,9 @@ class LocalClient(ModelClient):
                     time.sleep(30)
                 else:
                     raise e
+            except openai.BadRequestError as e:
+                logger.warning(f"Bad request error: {e}")
+                return str(e)
 
 class InfinigenceClient(ModelClient):
     def __init__(self, api_key):
