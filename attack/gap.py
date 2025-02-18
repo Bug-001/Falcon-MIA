@@ -10,8 +10,11 @@ from string_utils import StringHelper
 class GAPAttack(ICLAttackStrategy):
     def __init__(self, attack_config):
         super().__init__(attack_config)
-        self.similarity_threshold = attack_config.get('similarity_threshold', 0.8)
+        self.num_cross_validation = attack_config.get('cross_validation', 1)
         self.shelper = StringHelper()
+        # 存储每一折的最优阈值和结果
+        self.thresholds = []
+        self.fold_results = []
         
     def _calculate_similarity(self, response: str, true_output: str) -> float:
         """辅助方法：计算相似度"""
@@ -19,19 +22,15 @@ class GAPAttack(ICLAttackStrategy):
         true_embedding = self.shelper.preprocess_text(true_output, 'semantic')
         return self.shelper.semantic_cosine_similarity(response_embedding, true_embedding)
 
-    def is_member_by_response(self, response: str, true_output: str) -> Tuple[float, bool]:
-        # 首先检查是否包含重复/已见过的提示词
-        duplicate_phrases = ["already", "duplicate", "same", "again", "previously", "repeat"]
-        for phrase in duplicate_phrases:
-            if phrase in response.lower():
-                return 1.0, True
-        
-        # 计算响应和真实输出之间的语义相似度
-        similarity = self._calculate_similarity(response, true_output)
-        return similarity, (similarity >= self.similarity_threshold)
-
     @ICLAttackStrategy.cache_results
     def attack(self, model: 'ModelInterface'):
+        # 查找results.pkl是否已经存在
+        self.results = self.logger.load_data("results.pkl")
+        if self.results is not None:
+            self.logger.info("Loaded results from results.pkl")
+            return
+        self.results = []
+        
         self.logger.new_table("gap-attack_results")
         
         data_loader = self.data_loader.train() + self.data_loader.test()
@@ -51,8 +50,8 @@ class GAPAttack(ICLAttackStrategy):
             true_response = template['assistant'].format(output=attack_sample["output"])
 
             # 计算相似度并记录结果
-            similarity, pred_member = self.is_member_by_response(response, true_response)
-            self.results.append((pred_member, is_member, similarity))
+            similarity = self._calculate_similarity(response, true_response)
+            self.results.append((similarity, is_member))
 
             # 记录到表格中
             self.logger.new_row("gap-attack_results")
@@ -61,37 +60,66 @@ class GAPAttack(ICLAttackStrategy):
             self.logger.add("Generated", response)
             self.logger.add("Similarity", similarity)
             self.logger.add("Is member", is_member)
-            self.logger.add("Predicted member", pred_member)
             self.logger.info(final_prompt)
 
             self.logger.info("-" * 50)
         
         self.logger.save()
+        self.logger.save_data(self.results, "results.pkl")
 
     def evaluate(self) -> Dict[str, float]:
-        predictions = [bool(pred) for pred, _, _ in self.results]
-        ground_truth = [bool(truth) for _, truth, _ in self.results]
-        similarities = [sim for _, _, sim in self.results]
+        # 将结果转换为DataFrame
+        results_df = pd.DataFrame(self.results, columns=['similarity', 'ground_truth'])
+        all_metrics = []
+        all_roc_data = []  # 存储所有折的ROC数据
         
-        metrics = EvaluationMetrics.calculate_advantage(predictions, ground_truth)
+        # 进行n-fold交叉验证
+        for fold in range(self.num_cross_validation):
+            # 划分训练集和测试集
+            train_df, test_df = train_test_split(
+                results_df,
+                train_size=self.train_attack,
+                random_state=fold,
+                shuffle=True
+            )
+            
+            # 在训练集上找到最优阈值
+            best_threshold, best_accuracy = EvaluationMetrics.get_best_threshold(
+                train_df['ground_truth'], train_df['similarity']
+            )
+            
+            # 在测试集上评估
+            test_predictions = test_df['similarity'] >= best_threshold
+            test_accuracy = np.mean(test_predictions == test_df['ground_truth'])
+            
+            # 计算ROC和AUC
+            fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(
+                test_df['ground_truth'], test_df['similarity']
+            )
+            
+            all_metrics.append({
+                'accuracy': test_accuracy,
+                'auc': roc_auc,
+                'threshold': best_threshold
+            })
+            
+            # 保存ROC数据
+            all_roc_data.append({
+                'fold': fold,
+                'fpr': fpr.tolist(),  # 转换为list以便JSON序列化
+                'tpr': tpr.tolist()
+            })
         
-        # 计算ROC曲线和AUC
-        fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(ground_truth, similarities)
-        metrics['auc'] = roc_auc
+        # 计算accuracy的均值和方差
+        accuracies = [m['accuracy'] for m in all_metrics]
+        best_thresholds = [m['threshold'] for m in all_metrics]
+        final_metrics = {
+            'avg_accuracy': np.mean(accuracies),
+            'std_accuracy': np.std(accuracies),
+            'best_thresholds': best_thresholds,
+            'roc_data': all_roc_data,  # 添加ROC数据到最终结果
+        }
         
-        # 计算log ROC
-        log_fpr, log_tpr, log_auc = EvaluationMetrics.calculate_log_roc_auc(ground_truth, similarities)
-        
-        # 存储ROC和log ROC数据
-        metrics.update({
-            'fpr': fpr,
-            'tpr': tpr,
-            'roc_auc': roc_auc,
-            'log_fpr': log_fpr,
-            'log_tpr': log_tpr,
-            'log_auc': log_auc
-        })
-        
-        self.logger.save_json('metrics.json', metrics)
-        self.logger.info(f"Metrics: {metrics}")
-        return metrics
+        self.logger.save_json('metrics.json', final_metrics)
+        self.logger.info(f"Metrics: {final_metrics}")
+        return final_metrics

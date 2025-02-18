@@ -124,7 +124,7 @@ class HybridAttack(ICLAttackStrategy):
         self.logger.new_table(results_table)
         
         attack_data = []
-        for (bw_pred, bw_true, bw_score), (rp_pred, rp_true, rp_score) in zip(
+        for (bw_pred, bw_true, bw_score), (rp_score, rp_true) in zip(
             self.brainwash_attack.results, self.repeat_attack.results
         ):
             # 验证两个攻击的ground truth一致

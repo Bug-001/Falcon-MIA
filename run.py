@@ -292,6 +292,9 @@ class ExperimentRunner:
                         print("A task timed out")
                     except Exception as e:
                         print(f"Task failed with: {e}")
+                        # 将错误信息写入error.txt
+                        with open("error.txt", "a") as f:
+                            f.write(f"Task failed with: {traceback.format_exc()}\n")
 
         except KeyboardInterrupt:
             print("\nCaught KeyboardInterrupt, shutting down...")

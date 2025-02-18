@@ -49,7 +49,7 @@ class BrainwashAttack(ICLAttackStrategy):
                 # XXX
                 "content": template['user'].format(input=attack_sample["input"]) + " Type:"
             }]
-            response = model.query(query_prompt, "Brainwash Attack")[0].split()[0]
+            response = model.query(query_prompt, "Brainwash Attack")[0]
             return response
         
         max_misleadings = self.max_misleadings

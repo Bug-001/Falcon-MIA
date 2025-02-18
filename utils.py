@@ -435,13 +435,18 @@ class EvaluationMetrics:
         # 计算ROC
         fpr, tpr, thresholds = roc_curve(ground_truth, scores)
 
-        # 找到最佳F1分数对应的阈值
-        f1_scores = [f1_score(ground_truth, scores >= threshold) for threshold in thresholds]
-        best_threshold_index = np.argmax(f1_scores)
+        # 找到最佳accuracy对应的阈值
+        accuracies = []
+        for threshold in thresholds:
+            predictions = scores >= threshold
+            accuracy = np.mean(predictions == ground_truth)
+            accuracies.append(accuracy)
+        
+        best_threshold_index = np.argmax(accuracies)
         best_threshold = thresholds[best_threshold_index]
-        best_f1 = f1_scores[best_threshold_index]
+        best_accuracy = accuracies[best_threshold_index]
 
-        return best_threshold, best_f1
+        return best_threshold, best_accuracy
 
     @staticmethod
     def plot_log_roc(log_fpr, log_tpr, log_auc, filename='log_roc_curve.png'):
