@@ -63,25 +63,22 @@ class ICLDataLoader:
         for i in range(batch_num):
             icl_samples = self._get_batch(dataset, icl_index)
             icl_index = (icl_index + self.batch_size) % len(dataset)
-            
-            if self.selected_attack_sample == 0:
-                # 随机选择策略
-                is_member = (i % 2 == 0)
-                if is_member:
+
+            is_member = (i % 2 == 0)
+            if is_member:
+                if self.selected_attack_sample == 0:
+                    # 伪随机选择策略
                     attack_sample = icl_samples[i % self.batch_size]
+                elif 1 <= self.selected_attack_sample <= self.batch_size:
+                    # 选择指定索引的成员样本
+                    attack_sample = icl_samples[self.selected_attack_sample - 1]
                 else:
-                    attack_sample = self.valid_dataset[test_index]
-                    test_index = (test_index + 1) % len(self.valid_dataset)
-            elif 1 <= self.selected_attack_sample <= self.batch_size:
-                # 选择指定索引的成员样本
-                is_member = True
-                attack_sample = icl_samples[self.selected_attack_sample - 1]
+                    raise ValueError(f"Invalid selected_attack_sample: {self.selected_attack_sample}")
             else:
                 # 选择非成员样本
-                is_member = False
                 attack_sample = self.valid_dataset[test_index]
                 test_index = (test_index + 1) % len(self.valid_dataset)
-            
+
             data.append((icl_samples, attack_sample, is_member))
         return data
 
