@@ -62,6 +62,33 @@ def get_folders(root_dir: str) -> list:
     root = Path(root_dir)
     return [f for f in root.iterdir() if f.is_dir()]
 
+def remove_technique_from_folder_name(folder_name: str) -> str:
+    parts = folder_name.split('--')
+    return '--'.join(part for part in parts if not part.startswith('technique('))
+
+def update_configs_from_key(key: str, data_config: dict, attack_config: dict, query_config: dict):
+    key_dict = parse_folder_name(key)
+    
+    for k, v in key_dict.items():
+        if k in data_config:
+            data_config[k] = v
+        elif k in attack_config:
+            attack_config[k] = v
+        elif k in query_config:
+            query_config[k] = v
+        else:
+            raise ValueError(f"Parameter {k} not found in data_config, attack_config, or query_config")
+
+def find_source_folder(root_dir: Path, key: str, technique: str) -> Path:
+    parts = key.split('--')
+    # 尝试在每个位置插入technique
+    for i in range(len(parts) + 1):
+        test_parts = parts[:i] + [f"technique({technique})"] + parts[i:]
+        test_path = root_dir / '--'.join(test_parts)
+        if test_path.exists():
+            return test_path
+    raise FileNotFoundError(f"No match folder for: {key} with technique {technique}")
+
 def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-Instruct'):
     root_dir = Path("cache/log")
     folders = get_folders(root_dir/model_name)
@@ -70,14 +97,14 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
     raw_data = []
     for folder in folders:
         info = parse_folder_name(folder.name)
-        if not info:
+        if not info or 'technique' not in info:
             continue
             
         similarities = load_similarities(folder)
         if not similarities:
             continue
         
-        group_key = (info['task'], info['dataset'], info['num_demonstrations'])
+        key = remove_technique_from_folder_name(folder.name)
         technique = info['technique'][:3]
         
         # 处理相似度名称
@@ -93,7 +120,7 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
             processed_similarities.append((new_data, label))
             
         raw_data.append({
-            'key': group_key,
+            'key': key,
             'data': processed_similarities
         })
     
@@ -126,40 +153,42 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
     
     # 借用ObfuscationAttack的方法进行分析
     for key, similarities_data in final_results.items():
-        data_config = {
-            "dataset": key[1],
-            "task": key[0],
-            "num_demonstrations": key[2]
-        }
-        data_config['technique'] = 'character_swap' # 假设该文件夹已经准备好
-        attack_config['type'] = 'Obfuscation'
-        attack_config['technique'] = 'obf_technique_test'
-        attack_config['name'] = f'{model_name}/obf_technique_test/{key}'
-        attack_config['num_similarities'] = len(list(similarities_data[0][0].values())[0])
-        attack_config['train_attack'] = 400
-        attack_config['test_attack'] = 100
-        attack_config['attack_phase'] = 'train-test'
+        # 更新配置
+        data_config_copy = data_config.copy()
+        attack_config_copy = attack_config.copy()
+        query_config_copy = query_config.copy()
+        update_configs_from_key(key, data_config_copy, attack_config_copy, query_config_copy)
+        
+        attack_config_copy['type'] = 'Obfuscation'
+        attack_config_copy['technique'] = 'obf_technique_test'
+        attack_config_copy['name'] = f'{model_name}/obf_technique_test/{key}'
+        attack_config_copy['num_similarities'] = len(list(similarities_data[0][0].values())[0])
+        attack_config_copy['train_attack'] = 400
+        attack_config_copy['test_attack'] = 100
+        attack_config_copy['attack_phase'] = 'train-test'
+
         # 将similarities_data保存，从而攻击会跳过访问LLM的阶段
-        os.makedirs(root_dir/attack_config['name'], exist_ok=True)
-        with open(root_dir/attack_config['name']/"similarities_data", 'wb') as f:
+        os.makedirs(root_dir/attack_config_copy['name'], exist_ok=True)
+        with open(root_dir/attack_config_copy['name']/"similarities_data", 'wb') as f:
             pickle.dump(similarities_data, f)
-        # 从对应的文件夹中加载一个dataset_overview.json文件，保存起来，以便attack.evaluate访问
-        # XXX: 以后应该把数据统一放到一个文件夹中
-        source_path = root_dir/model_name/get_folder_name(data_config)/"dataset_overview.json"
-        dataset_overview_path = Path(root_dir/attack_config['name']/"dataset_overview.json")
-        with open(source_path, 'r') as f:
+            
+        # 查找并复制dataset_overview.json
+        source_path = find_source_folder(root_dir/model_name, key, 'character_swap')
+        dataset_overview_path = root_dir/attack_config_copy['name']/"dataset_overview.json"
+        with open(source_path/"dataset_overview.json", 'r') as f:
             dataset_overview = json.load(f)
             with open(dataset_overview_path, 'w') as g:
                 json.dump(dataset_overview, g, indent=4)
+
         # 创建一个假的level_info文件，这里就不再获取真的level_info了
-        level_info_path = Path(root_dir/attack_config['name']/"level_details.json")
+        level_info_path = Path(root_dir/attack_config_copy['name']/"level_details.json")
         with open(level_info_path, 'w') as f:
             json.dump([{
                 "sample_id": -1,
                 "response": "",
             }], f, indent=4)
         print('Starting attack:', key)
-        icl.main(data_config, attack_config, query_config)
+        icl.main(data_config_copy, attack_config_copy, query_config_copy)
 
 def load_yaml_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, 'r') as file:
