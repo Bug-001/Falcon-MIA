@@ -480,7 +480,7 @@ class StringHelper:
     # Semantic similarities
     def semantic_cosine_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
         """Calculate cosine similarity between embeddings."""
-        return float(cosine(emb1, emb2))
+        return 1 - float(cosine(emb1, emb2))
 
     def semantic_euclidean_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
         """Calculate euclidean-based similarity between embeddings."""
