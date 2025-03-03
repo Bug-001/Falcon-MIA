@@ -2,6 +2,7 @@ from .common import *
 
 from attack import ICLAttackStrategy
 from string_utils import ObfuscationTechniques, StringHelper
+from attack.mitigation import create_privacy_mitigation
 
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, log_loss
 from sklearn.model_selection import train_test_split
@@ -138,14 +139,15 @@ class ObfuscationAttack(ICLAttackStrategy):
             save_steps=50,
             save_total_limit=10,
             load_best_model_at_end=True,
-            metric_for_best_model="accuracy"
+            metric_for_best_model="accuracy",
+            report_to='none', # XXX: Disable wandb temporarily
         )
 
         # 添加数据存储列表
         self.train_data_list = [None] * self.num_cross_validation
         self.test_data_list = [None] * self.num_cross_validation
 
-    def _attack(self, model):
+    def _attack(self, model, query_hooks=None):
         # 创建主表格和详细记录表格
         results_table = "dataset_overview"
         details_table = "level_details"
@@ -194,7 +196,13 @@ class ObfuscationAttack(ICLAttackStrategy):
                     "role": "user",
                     "content": self.attack_template.format(input=obfuscated_text)
                 }]
-                query_return = model.query(query_prompt, "Obfuscation Attack")
+                
+                # Apply privacy hooks if provided
+                query_return = model.query(
+                    query_prompt, 
+                    "Obfuscation Attack",
+                    query_hook_dict=query_hooks
+                )
                 response = query_return[0]
                 similarities_first_line = self.shelper.calculate_overall_similarity_dict(original_text, response.split('\n')[0])
                 similarities_all_lines = self.shelper.calculate_overall_similarity_dict(original_text, response)
@@ -375,13 +383,22 @@ class ObfuscationAttack(ICLAttackStrategy):
         if self.similarities_data == None:
             if self.attack_config.get('attack_phase', 'all') == 'train-test':
                 raise ValueError("Similarities data is not found. Please run the attack in all phase")
+            
+            # Set up privacy mitigation hooks if enabled in config
+            privacy_hooks = create_privacy_mitigation(self.attack_config, model)
+            
             if self.attack_config.get('sim_use_idf', False):
                 self.idf = self.sdm.get_idf()
                 self.shelper.set_idf_dict(self.idf)
             if self.attack_config.get('obf_use_idf', False):
                 self.idf = self.sdm.get_idf()
                 self.obfuscator.set_idf_dict(self.idf)
-            self.similarities_data = self._attack(model)
+            
+            # Apply privacy hooks during attack if enabled
+            self.similarities_data = self._attack(
+                model, 
+                query_hooks=privacy_hooks,
+            )
             self.logger.save_data(self.similarities_data, "similarities_data")
             self.logger.save()
         else:

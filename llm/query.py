@@ -305,15 +305,58 @@ class ModelInterface:
     def __init__(self, query_config):
         self.query_config = query_config
         
-    def query(self, prompt: List[Dict[str, str]], chat_name: str) -> str:
+    def query(self, prompt: List[Dict[str, str]], chat_name: str, query_hook_dict: dict = None) -> str:
+        # Available hooks:
+        # pre_hook: function(prompt: List[Dict[str, str]]) -> Dict
+        # post_hook: function(llm_response: str) -> Dict
+
         config = self.query_config.copy()
+        
+        pre_hook_warning = None
+        
+        if query_hook_dict and 'pre_hook' in query_hook_dict:
+            pre_hook_result = query_hook_dict['pre_hook'](prompt)
+            
+            # Check if pre_hook returned a dictionary with the expected format
+            if isinstance(pre_hook_result, dict) and "result" in pre_hook_result:
+                # Store warning info if status is "warning"
+                if pre_hook_result.get("status") == "warning":
+                    pre_hook_warning = pre_hook_result.get("info")
+                    
+                # If status is "filtered", return the info message directly
+                if pre_hook_result.get("status") == "filtered":
+                    return [pre_hook_result.get("info", "Query rejected by security filter")]
+                    
+                prompt = pre_hook_result["result"]
+            else:
+                # For backward compatibility
+                prompt = pre_hook_result
+            
+        # If prompt is None, return early
+        if prompt is None:
+            return ["Query rejected by security filter"]
+        
         chat_config = {
             "name": chat_name,
             "messages": prompt
         }
         config['chats'] = [chat_config]
-        
         llm_response = QueryProcessor(config).process_query()[0]
+        
+        # Append warning to the response if there was one
+        if pre_hook_warning:
+            llm_response = f"[WARNING] {pre_hook_warning}\n\n{llm_response}"
+        
+        if query_hook_dict and 'post_hook' in query_hook_dict:
+            post_hook_result = query_hook_dict['post_hook'](llm_response)
+            
+            # Check if post_hook returned a dictionary with the expected format
+            if isinstance(post_hook_result, dict) and "result" in post_hook_result:
+                llm_response = post_hook_result["result"]
+            else:
+                # For backward compatibility
+                llm_response = post_hook_result
+
         return llm_response
 
 if __name__ == "__main__":

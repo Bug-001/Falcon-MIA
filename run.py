@@ -139,15 +139,19 @@ class ExperimentRunner:
             for value_spec in param_values:
                 # 如果是普通元素
                 if not isinstance(value_spec, dict):
-                    cur_choices.append({param_name: value_spec})
+                    # 尝试使用eval解析参数值
+                    parsed_value = self._try_eval_value(value_spec)
+                    cur_choices.append({param_name: parsed_value})
 
                 # 如果是带依赖的配置列表
                 else:
                     value = value_spec['value']
+                    # 对value也尝试eval解析
+                    parsed_value = self._try_eval_value(value)
                     dep = value_spec['dependency']
                     dep_combinations = self._process_param_dict(dep)
                     for dep_combo in dep_combinations:
-                        dep_combo[param_name] = value
+                        dep_combo[param_name] = parsed_value
                         cur_choices.append(dep_combo)
                 
             all_choices.append(cur_choices)
@@ -159,6 +163,20 @@ class ExperimentRunner:
                 cur_dict = cur_dict | param_dict
             ret.append(cur_dict)
         return ret
+    
+    def _try_eval_value(self, value):
+        """尝试对值进行eval处理，失败则返回原始值"""
+        # 只对字符串类型进行eval尝试
+        if not isinstance(value, str):
+            return value
+        
+        try:
+            # 尝试eval解析字符串
+            parsed_value = eval(value)
+            return parsed_value
+        except Exception:
+            # 如果解析失败，返回原始字符串
+            return value
     
     def _get_program_last_modified_time(self) -> float:
         """获取程序文件的最后修改时间"""
