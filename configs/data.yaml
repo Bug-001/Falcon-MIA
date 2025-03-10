@@ -1,0 +1,5 @@
+# gpqa.yaml
+
+dataset: "gpqa"
+task: "default"
+num_demonstrations: 3

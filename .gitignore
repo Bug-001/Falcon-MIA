@@ -12,3 +12,5 @@ cache
 
 test.ipynb
 .ipynb_checkpoints
+
+!configs/*.yaml

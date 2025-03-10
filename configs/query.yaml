@@ -1,0 +1,24 @@
+# query.yaml
+
+# model_type: openai
+# model: gpt-3.5-turbo
+
+model_type: local
+model: server3.yaml
+
+# model_type: infinigence
+# model: qwen2.5-72b-instruct
+
+# model_type: anthropic
+# model: claude-3-haiku-20240307
+
+# model_type: aiml
+# model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+
+query_type: chat
+temperature: 0.3
+max_tokens: 500
+top_p: 0.9
+frequency_penalty: 0.2
+presence_penalty: 0.2
+# stop: ["Type:", "Answer:"]
