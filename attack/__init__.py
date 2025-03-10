@@ -22,7 +22,7 @@ class ICLDataLoader:
         self.atk_index = 0
 
     def _generate_data_alt(self, dataset, batch_num):
-        # 交替选择成员样本，确保每个攻击实例都有member和nonmember的情况
+        # Alternately select member samples to ensure each attack instance has both member and non-member cases
         data = []
         icl_index = 0
         batch_num = batch_num // 2
@@ -30,14 +30,14 @@ class ICLDataLoader:
             self.atk_index = (self.atk_index + 1) % len(self.valid_dataset)
             attack_sample = self.valid_dataset.select([self.atk_index])
 
-            # 确定要替换的位置
+            # Determine position to replace
             replace_position = i % self.batch_size
 
-            # 令该样本为member
+            # Make this sample a member
             is_member = True
             icl_samples = self._get_batch(dataset, icl_index)
             icl_index = (icl_index + self.batch_size) % len(dataset)
-            # 用attack_sample替换icl_samples中的指定位置
+            # Replace specified position in icl_samples with attack_sample
             icl_samples_dict = icl_samples.to_dict()
             for key in icl_samples_dict.keys():
                 icl_samples_dict[key][replace_position] = attack_sample[key][0]
@@ -45,7 +45,7 @@ class ICLDataLoader:
             attack_sample = attack_sample[0]
             data.append((icl_samples, attack_sample, is_member))
             
-            # 令该样本为非member
+            # Make this sample a non-member
             is_member = False
             icl_samples = self._get_batch(dataset, icl_index)
             icl_index = (icl_index + self.batch_size) % len(dataset)
@@ -67,15 +67,15 @@ class ICLDataLoader:
             is_member = (i % 2 == 0)
             if is_member:
                 if self.selected_attack_sample == 0:
-                    # 伪随机选择策略
+                    # Pseudo-random selection strategy
                     attack_sample = icl_samples[i % self.batch_size]
                 elif 1 <= self.selected_attack_sample <= self.batch_size:
-                    # 选择指定索引的成员样本
+                    # Select member sample at specified index
                     attack_sample = icl_samples[self.selected_attack_sample - 1]
                 else:
                     raise ValueError(f"Invalid selected_attack_sample: {self.selected_attack_sample}")
             else:
-                # 选择非成员样本
+                # Select non-member sample
                 attack_sample = self.valid_dataset[test_index]
                 test_index = (test_index + 1) % len(self.valid_dataset)
 
@@ -87,7 +87,7 @@ class ICLDataLoader:
         if end_index <= len(dataset):
             return dataset.select(range(start_index, end_index))
         else:
-            # 处理 wrap around 的情况
+            # Handle wrap around case
             first_part = list(range(start_index, len(dataset)))
             second_part = list(range(0, end_index % len(dataset)))
             return dataset.select(first_part + second_part)
@@ -111,12 +111,12 @@ class ICLAttackStrategy(ABC):
         dataset_name = data_config["dataset"]
         task = data_config.get("task", "default")
         
-        # 加载数据集和其默认配置
+        # Load dataset and its default configuration
         self.sdm = SDatasetManager(dataset_name, task)
         train_attack = self.attack_config.get('train_attack', 100)
         test_attack = self.attack_config.get('test_attack', 100)
         num_demo = data_config.get('num_demonstrations', 6)
-        # 确认数据集的数量，要求validation集的数据量不超过总数据量的3/4（左右）
+        # Verify dataset quantities, requiring validation set size not to exceed about 3/4 of total data
         total_size = self.sdm.get_total_size()
         if train_attack + test_attack > total_size * 3 // 4:
             train_attack = int(train_attack / (train_attack + test_attack) * total_size * 3 // 4)
@@ -130,7 +130,7 @@ class ICLAttackStrategy(ABC):
         dataset = self.sdm.crop_dataset(split=split, seed=self.random_seed, prioritized_splits=['validation'])
         default_config = self.sdm.get_config()
 
-        # 合并默认配置和用户配置
+        # Merge default configuration and user configuration
         self.data_config = {
             **default_config,
             **data_config
@@ -146,10 +146,10 @@ class ICLAttackStrategy(ABC):
                 selected_attack_sample=self.attack_config.get('selected_attack_sample', 0)
             )
 
-        # 为训练和测试选择不同的模板
+        # Select different templates for training and testing
         templates = self.data_config['prompt_template']
-        self.test_template = templates[-1]  # 测试总是使用最后一个模板
-        self.train_template = templates[-2]  # 训练总是使用倒数第二个模板
+        self.test_template = templates[-1]  # Test always uses the last template
+        self.train_template = templates[-2]  # Training always uses the second last template
 
     def remove_punctuation(self, word: str):
         return word.translate(str.maketrans(string.punctuation, ' ' * len(string.punctuation)))
@@ -238,7 +238,7 @@ class ICLAttackStrategy(ABC):
         from .gap import GAPAttack
         from .inquiry import InquiryAttack
         from .repeat import RepeatAttack
-        # from .brainwash import BrainwashAttack
+        from .brainwash import BrainwashAttack
         from .hybrid import HybridAttack
         from .obfuscation import ObfuscationAttack
 
@@ -249,8 +249,8 @@ class ICLAttackStrategy(ABC):
             return InquiryAttack(attack_config)
         elif attack_type == 'Repeat':
             return RepeatAttack(attack_config)
-        # elif attack_type == 'Brainwash':
-        #     return BrainwashAttack(attack_config)
+        elif attack_type == 'Brainwash':
+            return BrainwashAttack(attack_config)
         elif attack_type == 'Hybrid':
             return HybridAttack(attack_config)
         elif attack_type == "Obfuscation":

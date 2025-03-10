@@ -22,7 +22,7 @@ def get_folders(root_dir: str) -> list:
 
 def organize_folders(root_dir: str, result_dir: str, ablation_vars: List[str]):
     """
-    整理文件夹，将符合命名规范的文件夹移动到ablation目录下的子文件夹中
+    Organize folders, move folders that match naming conventions to subfolders under the ablation directory
     """
     root = Path(root_dir)
     model_dir = root / result_dir
@@ -31,23 +31,23 @@ def organize_folders(root_dir: str, result_dir: str, ablation_vars: List[str]):
     if not ablation_dir.exists():
         ablation_dir.mkdir(parents=True, exist_ok=True)
     
-    # 遍历文件夹
+    # Traverse folders
     for folder in get_folders(model_dir):
         info = parse_folder_name(folder.name)
         if not info:
             continue
         
-        # 提取并排序ablation变量的值
+        # Extract and sort ablation variable values
         ablation_values = [(var, info[var]) for var in sorted(ablation_vars) if var in info]
         if not ablation_values:
             continue
         
-        # 创建子文件夹名
+        # Create subfolder name
         folder_name = "--".join(f"{var}({value})" for var, value in ablation_values)
         target_dir = ablation_dir / folder_name
         os.makedirs(target_dir, exist_ok=True)
         
-        # 复制文件夹
+        # Copy folder
         for var in ablation_vars:
             info.pop(var, None)
         info.pop('type', None) # XXX
@@ -59,18 +59,18 @@ def main(data_config, attack_config, query_config, ablation_vars: List[str], res
     print(ablation_vars, result_dir)
     root_dir = Path("cache/log")
     
-    # 整理文件夹
+    # Organize folders
     organize_folders(root_dir, result_dir, ablation_vars)
     
-    # 对ablation目录下的每个子文件夹进行处理
+    # Process each subfolder under the ablation directory
     ablation_dir = root_dir / result_dir / "ablation"
     for sub_dir in get_folders(ablation_dir):
         
         print(f"Processing {sub_dir.name}...")
-        # 直接调用obf-multi-techniques的main函数
+        # Directly call the main function of obf-multi-techniques
         obf_multi_techniques.main(data_config, attack_config, query_config, model_name=f"{result_dir}/ablation/{sub_dir.name}")
 
-    # 处理完成后，使用metrics_getter整合所有结果
+    # After processing, use metrics_getter to integrate all results
     for sub_dir in get_folders(ablation_dir):
         print(f"Showing the metrics of {sub_dir.name}...")
         obf_metrics_getter.main(model_name=f"{result_dir}/ablation/{sub_dir.name}/obf_technique_test")

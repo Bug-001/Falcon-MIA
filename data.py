@@ -9,25 +9,25 @@ import xml.etree.ElementTree as ET
 import os
 
 class BaseDataLoader(ABC):
-    """数据集加载器的基类"""
+    """Base class for dataset loaders"""
     @abstractmethod
     def load(self, task: str = "default", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
-        加载并处理数据集
+        Load and process dataset
         Args:
-            task: 任务名称，默认为"default"表示单任务数据集
+            task: Task name, default is "default" representing a single-task dataset
         Returns:
-            处理后的数据集和配置的元组
+            Tuple of processed dataset and configuration
         """
         pass
 
     @abstractmethod
     def get_supported_tasks(self) -> List[str]:
-        """返回该数据集支持的所有任务列表"""
+        """Return a list of all supported tasks for this dataset"""
         pass
 
 class GPQALoader(BaseDataLoader):
-    """单任务数据集"""
+    """Single-task dataset"""
     def get_supported_tasks(self) -> List[str]:
         return ["default"]
 
@@ -75,7 +75,7 @@ class GPQALoader(BaseDataLoader):
         return processed_dataset, config
 
 class TRECLoader(BaseDataLoader):
-    """单任务数据集"""
+    """Single-task dataset"""
     def get_supported_tasks(self) -> List[str]:
         return ["default"]
 
@@ -129,7 +129,7 @@ class TRECLoader(BaseDataLoader):
         return processed_dataset, config
 
 class AGNewsLoader(BaseDataLoader):
-    """单任务数据集"""
+    """Single-task dataset"""
     def get_supported_tasks(self) -> List[str]:
         return ["default"]
 
@@ -181,14 +181,14 @@ class AGNewsLoader(BaseDataLoader):
         return processed_dataset, config
 
 class LexGlueLoader(BaseDataLoader):
-    """用于加载和处理法律文本预测数据集的加载器"""
+    """Loader for loading and processing legal text prediction datasets"""
     
     def get_supported_tasks(self) -> List[str]:
         return ["prediction", "generation", "multiple_choice", "judgment"]
     
     def _process_for_prediction(self, example):
-        """处理预测任务的数据，将所有可能的endings作为选项"""
-        # 生成选项列表
+        """Process data for prediction tasks, using all possible endings as options"""
+        # Generate options list
         choices = [f"Option {i}: {ending}" for i, ending in enumerate(example['endings'])]
         choices_text = "\n".join(choices)
         
@@ -203,7 +203,7 @@ class LexGlueLoader(BaseDataLoader):
         }
     
     def _process_for_multiple_choice(self, example):
-        """处理多选题形式的数据"""
+        """Process data in multiple choice format"""
         return {
             "context": example['context'],
             "choices": example['endings'],
@@ -211,7 +211,7 @@ class LexGlueLoader(BaseDataLoader):
         }
     
     def _process_for_judgment(self, example):
-        """处理判断任务的数据"""
+        """Process data for judgment tasks"""
         context = example['context']
         selected_choice = abs(hash(context)) // 10 % len(example['endings'])
         return {
@@ -220,26 +220,26 @@ class LexGlueLoader(BaseDataLoader):
         }
     
     def _process_for_generation(self, example):
-        """处理生成任务的数据"""
+        """Process data for generation tasks"""
         return {
             "input": example['context'],
-            "output": example['endings'][example['label']]  # 使用正确的ending作为目标输出
+            "output": example['endings'][example['label']]  # Use the correct ending as the target output
         }
     
     def load(self, task: str = "prediction", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
-        加载并处理法律文本数据集
+        Load and process legal text datasets
         
         Args:
-            task: 任务类型，支持：
-                - "prediction": 预测正确的法律判决
-                - "generation": 生成法律判决
-                - "multiple_choice": 多选题形式的任务
+            task: Task type, supports:
+                - "prediction": Predict the correct legal holding
+                - "generation": Generate legal holdings
+                - "multiple_choice": Task in multiple choice format
         """
         if task not in self.get_supported_tasks():
             raise ValueError(f"Task {task} not supported. Available tasks: {self.get_supported_tasks()}")
         
-        # 加载数据集
+        # Load dataset
         dataset = load_dataset("coastalcph/lex_glue", "case_hold")
         
         if task == "prediction":
@@ -346,19 +346,19 @@ class LexGlueLoader(BaseDataLoader):
         return processed_dataset, config
 
 class MedNLILoader(BaseDataLoader):
-    """用于加载和处理医疗自然语言推理数据集的加载器，该数据集必须先手动下载"""
+    """Loader for loading and processing medical natural language inference datasets, which must be manually downloaded first"""
     
     def get_supported_tasks(self) -> List[str]:
         return ["nli", "classification", "explanation"]
     
     def _prepare_data(self, data_dir: str) -> Dataset:
-        # 检查必要的文件是否存在
+        # Check if necessary files exist
         required_files = ['mli_train.jsonl', 'mli_dev.jsonl', 'mli_test.jsonl']
         for file in required_files:
             if not os.path.exists(os.path.join(data_dir, file)):
                 raise FileNotFoundError(f"Required file {file} not found in {data_dir}")
         
-        # 加载数据集
+        # Load dataset
         dataset = load_dataset('json',
                              data_files={
                                  'train': os.path.join(data_dir, 'mli_train.jsonl'),
@@ -369,7 +369,7 @@ class MedNLILoader(BaseDataLoader):
         return dataset
     
     def _process_for_nli(self, example):
-        """处理NLI任务的数据"""
+        """Process data for NLI tasks"""
         return {
             "input": f"Premise: {example['sentence1']}\nHypothesis: {example['sentence2']}",
             "output": example['gold_label'],
@@ -381,7 +381,7 @@ class MedNLILoader(BaseDataLoader):
         }
     
     def _process_for_classification(self, example):
-        """处理分类任务的数据"""
+        """Process data for classification tasks"""
         label_map = {
             'entailment': 'The hypothesis logically follows from the premise',
             'contradiction': 'The hypothesis contradicts the premise',
@@ -396,22 +396,22 @@ class MedNLILoader(BaseDataLoader):
     
     def load(self, task: str = "nli", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
-        加载并处理MedNLI数据集
+        Load and process MedNLI dataset
         
         Args:
-            task: 任务类型，支持 "nli"/"classification"/"explanation"
+            task: Task type, supports "nli"/"classification"/"explanation"
             
         Returns:
-            处理后的数据集和配置信息
+            Processed dataset and configuration information
         """
         if task not in self.get_supported_tasks():
             raise ValueError(f"Task {task} not supported. Available tasks: {self.get_supported_tasks()}")
         
-        # 加载原始数据集
+        # Load original dataset
         data_dir = os.path.join(kwargs.get("data_dir"), 'mednli')
         dataset = self._prepare_data(data_dir)
         
-        # 根据任务类型选择处理方法
+        # Choose processing method based on task type
         if task == "nli":
             processed_dataset = dataset.map(self._process_for_nli)
             config = {
@@ -468,19 +468,19 @@ class MedNLILoader(BaseDataLoader):
         return processed_dataset, config
 
 class PubMedQALoader(BaseDataLoader):
-    """用于加载和处理医学文献问答数据集的加载器"""
+    """Loader for loading and processing medical literature question answering datasets"""
     
     def get_supported_tasks(self) -> List[str]:
         return [
-            "qa",              # 问答任务
-            "classification",  # 文本分类（段落标签预测）
-            "summarization",   # 总结生成
-            "mesh_prediction"  # 医学主题词预测
+            "qa",              # Question answering task
+            "classification",  # Text classification (paragraph label prediction)
+            "summarization",   # Summary generation
+            "mesh_prediction"  # Medical subject heading prediction
         ]
     
     def _process_for_qa(self, example):
-        """处理问答任务的数据"""
-        # 将上下文段落组合，并保持原有的结构标签
+        """Process data for question answering tasks"""
+        # Combine context paragraphs while maintaining structure labels
         structured_context = []
         for ctx, label in zip(example['CONTEXTS'], example['LABELS']):
             structured_context.append(f"{label}: {ctx}")
@@ -496,8 +496,8 @@ class PubMedQALoader(BaseDataLoader):
         }
     
     def _process_for_classification(self, batch):
-        """处理段落分类任务的数据"""
-        # 为每个段落创建单独的样本
+        """Process data for paragraph classification tasks"""
+        # Create separate samples for each paragraph
         result = {
             "input": [],
             "output": [],
@@ -516,7 +516,7 @@ class PubMedQALoader(BaseDataLoader):
         return result
     
     def _process_for_summarization(self, example):
-        """处理摘要生成任务的数据"""
+        """Process data for summary generation tasks"""
         return {
             "input": chr(10).join(example['CONTEXTS']),
             "output": example['LONG_ANSWER'],
@@ -528,7 +528,7 @@ class PubMedQALoader(BaseDataLoader):
         }
     
     def _process_for_mesh_prediction(self, example):
-        """处理医学主题词预测任务的数据"""
+        """Process data for medical subject heading prediction tasks"""
         return {
             "input": f"Question: {example['QUESTION']}\n\nContext:\n{chr(10).join(example['CONTEXTS'])}",
             "output": ", ".join(example['MESHES']),
@@ -540,18 +540,18 @@ class PubMedQALoader(BaseDataLoader):
     
     def load(self, task: str = "qa", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
-        加载并处理医学文献问答数据集
+        Load and process medical literature question answering dataset
         
         Args:
-            task: 任务类型，支持 "qa"/"classification"/"summarization"/"mesh_prediction"
+            task: Task type, supports "qa"/"classification"/"summarization"/"mesh_prediction"
             
         Returns:
-            处理后的数据集和配置信息
+            Processed dataset and configuration information
         """
         if task not in self.get_supported_tasks():
             raise ValueError(f"Task {task} not supported. Available tasks: {self.get_supported_tasks()}")
         
-        # 根据任务类型选择处理方法和配置
+        # Select processing method and configuration based on task type
         processing_fn = getattr(self, f"_process_for_{task}")
         
         task_configs = {
@@ -642,8 +642,8 @@ class PubMedQALoader(BaseDataLoader):
             }
         }
 
-        datadict = load_dataset('bigbio/pubmed_qa')  # 需要替换为实际的数据集路径
-        # 简洁的字典推导式方式
+        datadict = load_dataset('bigbio/pubmed_qa')  # Need to replace with actual dataset path
+        # Concise dictionary comprehension method
         batched = False
         if processing_fn == self._process_for_classification:
             batched = True
@@ -670,22 +670,22 @@ class PubMedQALoader(BaseDataLoader):
         return processed_dataset, config
 
 class CCELoader(BaseDataLoader):
-    """用于加载和处理CCE(Common Configuration Enumeration)安全配置数据集的加载器"""
+    """Loader for loading and processing CCE (Common Configuration Enumeration) security configuration datasets"""
     
     def get_supported_tasks(self) -> List[str]:
         return [
-            "classification",  # 配置类型分类
-            "requirement_extraction",  # 提取配置要求
-            "reference_prediction",  # 预测相关安全标准引用
-            "platform_detection"  # 检测适用平台
+            "classification",  # Configuration type classification
+            "requirement_extraction",  # Extract configuration requirements
+            "reference_prediction",  # Predict relevant security standards and guidelines
+            "platform_detection"  # Detect applicable platforms
         ]
     
     def _parse_xml_data(self, xml_file: str) -> List[Dict]:
-        """解析CCE XML文件并提取相关信息"""
+        """Parse CCE XML file and extract relevant information"""
         tree = ET.parse(xml_file)
         root = tree.getroot()
         
-        # 处理命名空间
+        # Handle namespace
         namespaces = {
             'cce': 'http://cce.mitre.org',
             'dc': 'http://purl.org/dc/terms/'
@@ -707,8 +707,8 @@ class CCELoader(BaseDataLoader):
         return entries
     
     def _process_for_classification(self, example):
-        """处理配置类型分类任务的数据"""
-        # 基于technical_mechanisms和description判断配置类型
+        """Process data for configuration type classification tasks"""
+        # Based on technical_mechanisms and description, determine configuration type
         config_types = {
             'filesystem': ['fstab', 'filesystem', 'mount'],
             'registry': ['registry', 'HKEY_LOCAL_MACHINE', 'regedit'],
@@ -734,7 +734,7 @@ class CCELoader(BaseDataLoader):
         }
     
     def _process_for_requirement_extraction(self, example):
-        """处理配置要求提取任务的数据"""
+        """Process data for configuration requirements extraction tasks"""
         return {
             "input": example['description'],
             "output": {
@@ -748,7 +748,7 @@ class CCELoader(BaseDataLoader):
         }
     
     def _process_for_reference_prediction(self, example):
-        """处理安全标准引用预测任务的数据"""
+        """Process data for security standards and guidelines prediction tasks"""
         references = [ref['text'] for ref in example['references']]
         return {
             "input": f"{example['description']}\n{' '.join(example['technical_mechanisms'])}",
@@ -760,7 +760,7 @@ class CCELoader(BaseDataLoader):
         }
     
     def _process_for_platform_detection(self, example):
-        """处理平台检测任务的数据"""
+        """Process data for platform detection tasks"""
         return {
             "input": f"{example['description']}\n{' '.join(example['technical_mechanisms'])}",
             "output": example['platform'],
@@ -772,19 +772,19 @@ class CCELoader(BaseDataLoader):
     
     def load(self, task: str = "classification", **kwargs) -> Tuple[DatasetDict, Dict[str, Any]]:
         """
-        加载并处理CCE数据集
+        Load and process CCE data set
         
         Args:
-            task: 任务类型，支持 "classification"/"requirement_extraction"/"reference_prediction"/"platform_detection"
-            data_path: CCE XML数据文件路径
+            task: Task type, supports "classification"/"requirement_extraction"/"reference_prediction"/"platform_detection"
+            data_path: CCE XML data file path
             
         Returns:
-            处理后的数据集和配置信息
+            Processed dataset and configuration information
         """
         if task not in self.get_supported_tasks():
             raise ValueError(f"Task {task} not supported. Available tasks: {self.get_supported_tasks()}")
         
-        # 解析XML数据
+        # Parse XML data
         data_name: str = "cce-COMBINED-5.20130214.xml"
         cce_dir = os.path.join(kwargs.get("data_dir"), 'cce')
         data_path = os.path.join(cce_dir, data_name)
@@ -792,15 +792,15 @@ class CCELoader(BaseDataLoader):
             raw_data = self._parse_xml_data(data_path)
         except FileNotFoundError:
             os.makedirs(cce_dir, exist_ok=True)
-            # 发送GET请求，流式传输
+            # Send GET request, stream transfer
             url = "https://cce.mitre.org/lists/data/downloads/cce-COMBINED-5.20130214.xml"
             response = requests.get(url, stream=True)
-            response.raise_for_status()  # 确保请求成功
+            response.raise_for_status()  # Ensure request successful
             
-            # 获取文件大小（如果服务器提供）
+            # Get file size (if server provides)
             total_size = int(response.headers.get('content-length', 0))
             
-            # 打开文件并写入数据
+            # Open file and write data
             with open(data_path, 'wb') as file, tqdm(
                 desc=f'Downloading {data_name}',
                 total=total_size,
@@ -813,16 +813,16 @@ class CCELoader(BaseDataLoader):
                     progress_bar.update(size)
             raw_data = self._parse_xml_data(data_path)
         
-        # 根据任务类型选择处理方法
+        # Choose processing method based on task type
         processing_fn = getattr(self, f"_process_for_{task}")
         
-        # 创建数据集
+        # Create dataset
         processed_data = [processing_fn(entry) for entry in raw_data]
         dataset = DatasetDict({
             "train": Dataset.from_list(processed_data)
         })
         
-        # 任务配置
+        # Task configuration
         task_configs = {
             "classification": {
                 "task_type": "text_classification",
@@ -923,7 +923,7 @@ class CCELoader(BaseDataLoader):
         
         return dataset, config
 
-# 数据集加载器注册表
+# Dataset loader registration table
 DATASET_LOADERS = {
     "gpqa": GPQALoader,
     "trec": TRECLoader,

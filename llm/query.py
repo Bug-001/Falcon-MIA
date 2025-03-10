@@ -26,7 +26,7 @@ class ModelClient(ABC):
 
 class OpenAIClient(ModelClient):
     def __init__(self, api_key=None, base_url=None):
-        # 允许通过参数设置base_url
+        # Allow setting base_url through parameters
         self.api_key = api_key
         self.base_url = base_url
         self.client_params = {"api_key": api_key}
@@ -43,23 +43,23 @@ class OpenAIClient(ModelClient):
                     messages=messages,
                     **kwargs
                 )
-                self.error_count = 0  # 成功后重置错误计数
+                self.error_count = 0  # Reset error count after success
                 ret = completion.choices[0].message.content
                 if ret == None:
                     logger.warning("Failed to get a response from the model. Details:")
                     logger.warning(completion)
                 return ret
             except openai.RateLimitError as e:
-                # 遇到限流错误时等待一小段时间后重试
+                # Wait a short time and retry when rate limit is exceeded
                 sleep_time = random.uniform(5, 10)
                 logger.warning(f"Credit limit exceeded, retrying in {sleep_time} seconds... Error: {e}")
                 time.sleep(sleep_time)
             except openai.APITimeoutError as e:
-                # API超时，等待后重试
+                # API timeout, wait and retry
                 logger.warning(f"API timeout, retrying in 3 seconds... Error: {e}")
                 time.sleep(3)
             except openai.InternalServerError as e:
-                # 一般为自定义错误，等待后重试
+                # Usually a custom error, wait and retry
                 self.error_count += 1
                 logger.warning(f"Internal server error ({self.error_count}/{self.error_threshold}), retrying... Error: {e}")
                 
@@ -168,14 +168,14 @@ class QueryProcessor:
         self.client = self._get_client()
         self.full_output = full_output
 
-        # 根据 full_output 设置 logger 级别
+        # Set logger level based on full_output
         if not self.full_output:
-            logger.setLevel(logging.WARNING)  # 只输出警告和错误
+            logger.setLevel(logging.WARNING)  # Only output warnings and errors
 
     def _get_client(self):
         model_type = self.query["model_type"]
         if model_type == "openai":
-            # 从配置中获取base_url
+            # Get base_url from configuration
             base_url = self.query.get("base_url")
             return OpenAIClient(
                 api_key=get_api_key("openai"),
@@ -204,7 +204,7 @@ class QueryProcessor:
             raise ValueError(f"Unsupported query type: {self.query['query_type']}")
 
     def _get_stop_pattern(self, model_name):
-        # 根据模型名称设置默认的stop pattern
+        # Set default stop pattern based on model name
         model_name_lower = model_name.lower()
         if 'llama' in model_name_lower:
             return ["[INST]", "[/INST]", "</s>", "[/s]"]
@@ -215,7 +215,7 @@ class QueryProcessor:
         elif 'vicuna' in model_name_lower:
             return ["[INST]", "[/INST]", "</s>", "[/s]"]
         else:
-            # 对于其他模型,使用一个通用的stop pattern
+            # For other models, use a generic stop pattern
             return []
 
     def process_chats(self):
@@ -251,7 +251,7 @@ class QueryProcessor:
 
             for message in messages:
                 if message['role'] == 'assistant' and message['content'] == '***TBA***':
-                    # 如果是assistant的TBA消息,则将前述上文发送到LLM
+                    # If it's a TBA message from assistant, send previous context to LLM
                     response = send_to_llm(updated_messages)
                     updated_messages.append({"role": "assistant", "content": response})
                     llm_responses.append(response)

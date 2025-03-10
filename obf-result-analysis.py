@@ -33,7 +33,7 @@ def file_cache(filename: str):
     return decorator
 
 def parse_folder_name(folder_name: str) -> Dict[str, str]:
-    """解析task(xx)--dataset(xx)--num_demonstrations(xx)--technique(xx)格式的路径"""
+    """Parse path in format task(xx)--dataset(xx)--num_demonstrations(xx)--technique(xx)"""
     pattern = r"task\((\w+)\)--dataset\((\w+)\)--num_demonstrations\((\d+)\)--technique\((\w+)\)"
     match = re.match(pattern, folder_name)
     if not match:
@@ -75,7 +75,7 @@ def load_all_predictions():
     model_name = 'Meta-Llama-3-8B-Instruct'
     folders = get_folders(root_dir/model_name/'obf_technique_test')
 
-    # 收集数据
+    # Collect data
     pred_data = pd.DataFrame()
     for folder in folders:
         info = eval(folder.name)
@@ -102,7 +102,7 @@ def load_all_datasets():
     model_name = 'Meta-Llama-3-8B-Instruct'
     folders = get_folders(root_dir/model_name/'obf_technique_test')
 
-    # 收集数据
+    # Collect data
     pred_data = pd.DataFrame()
     for folder in folders:
         info = eval(folder.name)
@@ -138,18 +138,18 @@ def plot_length_bias_density(data, figsize=(15, 8), method='kde', bins=50, std_m
     """
     plt.figure(figsize=figsize)
     
-    # 获取所有唯一的length值
+    # Get all unique length values
     lengths = sorted(data['length'].unique())
     
-    # 计算bias的范围
+    # Calculate bias range
     bias_min, bias_max = data['bias'].min(), data['bias'].max()
     bias_range = np.linspace(bias_min, bias_max, bins)
     
-    # 创建密度矩阵
+    # Create density matrix
     density_matrix = np.zeros((len(bias_range)-1, len(lengths)))
     
     if method == 'kde':
-        # 使用KDE方法计算密度
+        # Use KDE method to calculate density
         for i, length in enumerate(lengths):
             length_data = data[data['length'] == length]['bias']
             if len(length_data) > 1:
@@ -159,37 +159,37 @@ def plot_length_bias_density(data, figsize=(15, 8), method='kde', bins=50, std_m
                                                bias_range, 
                                                density/density.max())
     else:
-        # 使用直方图方法计算密度
+        # Use histogram method to calculate density
         for i, length in enumerate(lengths):
             length_data = data[data['length'] == length]['bias']
             if len(length_data) > 0:
                 hist, _ = np.histogram(length_data, bins=bias_range, density=True)
                 density_matrix[:, i] = hist / hist.max() if hist.max() > 0 else hist
     
-    # 创建自定义颜色映射（从浅到深的蓝色）
+    # Create custom color map (light to dark blue)
     colors = ['#ffffff', '#e6f3ff', '#b3d9ff', '#80bfff', '#4da6ff', '#1a8cff', '#0066cc']
     cmap = LinearSegmentedColormap.from_list('custom_blues', colors)
     
-    # 绘制密度图
+    # Draw density plot
     plt.imshow(density_matrix, aspect='auto', origin='lower', 
               extent=[min(lengths), max(lengths), bias_min, bias_max],
               cmap=cmap, interpolation='nearest')
     
-    # 添加颜色条
+    # Add color bar
     plt.colorbar(label='Normalized Density')
     
-    # 计算均值和标准差
+    # Calculate mean and standard deviation
     stats_df = data.groupby('length')['bias'].agg([
         'mean',
         'std'
     ]).reset_index()
     stats_df.columns = ['length', 'mean', 'std']
     
-    # 绘制均值线和标准差范围
+    # Draw mean line and standard deviation range
     plt.plot(stats_df['length'], stats_df['mean'], 'r-', 
             linewidth=2, label='Mean')
     
-    # 绘制±n个标准差的范围
+    # Draw ±n standard deviations range
     plt.plot(stats_df['length'], 
             stats_df['mean'] + std_multiplier * stats_df['std'], 
             'g--', linewidth=1.5, 
@@ -198,13 +198,13 @@ def plot_length_bias_density(data, figsize=(15, 8), method='kde', bins=50, std_m
             stats_df['mean'] - std_multiplier * stats_df['std'], 
             'g--', linewidth=1.5)
     
-    # 设置图表样式
+    # Set chart style
     plt.xlabel('Length', fontsize=12)
     plt.ylabel('Bias', fontsize=12)
     plt.title('Density Distribution of Bias Across Length Values', fontsize=14)
     plt.legend()
     
-    # 根据数据范围优化x轴刻度
+    # Optimize x-axis ticks based on data range
     tick_step = max(1, len(lengths) // 10)
     plt.xticks(np.arange(min(lengths), max(lengths)+1, tick_step))
     plt.ylim(math.floor(bias_min), math.ceil(bias_max))

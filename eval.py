@@ -47,13 +47,13 @@ def plot_guitar(data):
     plt.savefig('attack_sample_score_distribution_guitar.png', dpi=300)
     plt.close()
 
-# 假设您的输出文件夹路径
+# Assume your output folder path
 base_path = 'cache'
 
-# 加载数据
+# Load data
 data = load_data(base_path)
 
-# 绘制吉他图
+# Draw guitar plot
 plot_guitar(data)
 
-print("吉他图已保存为 'attack_sample_score_distribution_guitar.png'")
+print("Guitar plot has been saved as 'attack_sample_score_distribution_guitar.png'")

@@ -20,7 +20,7 @@ class HybridDataCollator:
         self.scalers = scalers
         
     def __call__(self, features: List[Tuple[float, float, bool]]) -> Dict[str, torch.Tensor]:
-        # 分离特征和标签
+        # Separate features and labels
         brainwash_scores = []
         repeat_scores = []
         labels = []
@@ -30,12 +30,12 @@ class HybridDataCollator:
             repeat_scores.append(repeat_score)
             labels.append(float(is_member))
         
-        # 归一化处理（如果scaler不为None）
+        # Normalize (if scalers are not None)
         if self.scalers is not None:
             brainwash_scores = self.scalers[0].transform(np.array(brainwash_scores).reshape(-1, 1)).flatten()
             repeat_scores = self.scalers[1].transform(np.array(repeat_scores).reshape(-1, 1)).flatten()
             
-        # 将分数组合成特征向量
+        # Combine scores into feature vectors
         features_list = [[b, r] for b, r in zip(brainwash_scores, repeat_scores)]
         
         return {
@@ -115,11 +115,11 @@ class HybridAttack(ICLAttackStrategy):
         self.repeat_attack.prepare(data_config, self.data_loader)
 
     def _attack(self, model: 'ModelInterface'):
-        # 执行子攻击并保存结果
+        # Execute sub-attacks and save results
         self.brainwash_attack.attack(model)
         self.repeat_attack.attack(model)
         
-        # 创建结果表格
+        # Create results table
         results_table = "dataset_overview"
         self.logger.new_table(results_table)
         
@@ -127,10 +127,10 @@ class HybridAttack(ICLAttackStrategy):
         for (bw_pred, bw_true, bw_score), (rp_score, rp_true) in zip(
             self.brainwash_attack.results, self.repeat_attack.results
         ):
-            # 验证两个攻击的ground truth一致
+            # Verify ground truth consistency between attacks
             assert bw_true == rp_true, "Inconsistent ground truth between attacks"
             
-            # 记录结果
+            # Record results
             row = self.logger.new_row(results_table)
             self.logger.add("brainwash_score", bw_score)
             self.logger.add("repeat_score", rp_score)
@@ -143,12 +143,12 @@ class HybridAttack(ICLAttackStrategy):
     def plot_attack_scores(self, data):
         plt.figure(figsize=(10, 8))
         
-        # 提取分数和标签
+        # Extract scores and labels
         brainwash_scores = np.array([x[0] for x in data])
         repeat_scores = np.array([x[1] for x in data])
         labels = np.array([x[2] for x in data])
 
-        # 绘制散点图
+        # Plot scatter chart
         plt.scatter(brainwash_scores[labels==1], repeat_scores[labels==1], 
                    c='red', label='Member', alpha=0.6)
         plt.scatter(brainwash_scores[labels==0], repeat_scores[labels==0], 
@@ -164,7 +164,7 @@ class HybridAttack(ICLAttackStrategy):
         plt.close()
 
     def attack(self, model: 'ModelInterface'):
-        # 尝试加载缓存的攻击数据
+        # Try to load cached attack data
         self.attack_data = self.logger.load_data("hybrid_attack_data")
         if self.attack_data is None:
             self.attack_data = self._attack(model)
@@ -173,12 +173,12 @@ class HybridAttack(ICLAttackStrategy):
         else:
             print("Loaded cached attack data.")
         
-        # 划分训练集和验证集
+        # Split into training and validation sets
         train_length = self.train_attack
         train_data = self.attack_data[:train_length]
         eval_data = self.attack_data[train_length:]
 
-        # 用全部数据，找一个合适的scaler
+        # Use all data to find appropriate scalers
         all_features = HybridDataCollator()(self.attack_data)['features']
         brainwash_features = all_features[:, 0].reshape(-1, 1)
         brainwash_scaler = MinMaxScaler().fit(brainwash_features)
@@ -186,13 +186,13 @@ class HybridAttack(ICLAttackStrategy):
         repeat_scaler = MinMaxScaler().fit(repeat_features)
         self.data_collator = HybridDataCollator(scalers=[brainwash_scaler, repeat_scaler])
         
-        # 可视化攻击分数分布
+        # Visualize attack score distribution
         self.plot_attack_scores(self.attack_data)
 
         # self.logger.save()
         # raise KeyboardInterrupt("Stop here for now.")
 
-        # 检查模型是否已训练
+        # Check if model is already trained
         classifier_path = os.path.join(self.classifier_dir, "model.safetensors")
         if not os.path.exists(classifier_path):
             trainer = Trainer(
@@ -212,7 +212,7 @@ class HybridAttack(ICLAttackStrategy):
             from safetensors.torch import load_file
             self.classifier.load_state_dict(load_file(classifier_path))
             
-        # 进行预测并记录结果
+        # Perform prediction and record results
         self.classifier.eval()
         predictions_table = "predictions"
         self.logger.new_table(predictions_table)
@@ -243,11 +243,11 @@ class HybridAttack(ICLAttackStrategy):
         fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(ground_truth, scores)
         metrics['auc'] = roc_auc
         
-        # 记录子攻击的评估结果
+        # Record sub-attack evaluation results
         # print(f"Repeat: {self.repeat_attack.evaluate()}")
         # print(f"Brainwash: {self.brainwash_attack.evaluate()}")
         
-        # 将评估指标添加到logger
+        # Add evaluation metrics to logger
         self.logger.new_table("metrics")
         for key, value in metrics.items():
             self.logger.add(key, value, "metrics")

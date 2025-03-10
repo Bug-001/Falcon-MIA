@@ -12,19 +12,19 @@ class GAPAttack(ICLAttackStrategy):
         super().__init__(attack_config)
         self.num_cross_validation = attack_config.get('cross_validation', 1)
         self.shelper = StringHelper()
-        # 存储每一折的最优阈值和结果
+        # Store optimal thresholds and results for each fold
         self.thresholds = []
         self.fold_results = []
         
     def _calculate_similarity(self, response: str, true_output: str) -> float:
-        """辅助方法：计算相似度"""
+        """Helper method: Calculate similarity"""
         response_embedding = self.shelper.preprocess_text(response, 'semantic')
         true_embedding = self.shelper.preprocess_text(true_output, 'semantic')
         return self.shelper.semantic_cosine_similarity(response_embedding, true_embedding)
 
     @ICLAttackStrategy.cache_results
     def attack(self, model: 'ModelInterface'):
-        # 查找results.pkl是否已经存在
+        # Check if results.pkl already exists
         self.results = self.logger.load_data("results.pkl")
         if self.results is not None:
             self.logger.info("Loaded results from results.pkl")
@@ -49,11 +49,11 @@ class GAPAttack(ICLAttackStrategy):
             # We assume that assistant is easy to be detected
             true_response = template['assistant'].format(output=attack_sample["output"])
 
-            # 计算相似度并记录结果
+            # Calculate similarity and record results
             similarity = self._calculate_similarity(response, true_response)
             self.results.append((similarity, is_member))
 
-            # 记录到表格中
+            # Record to table
             self.logger.new_row("gap-attack_results")
             self.logger.add("Input", attack_sample["input"])
             self.logger.add("True Response", true_response)
@@ -68,14 +68,14 @@ class GAPAttack(ICLAttackStrategy):
         self.logger.save_data(self.results, "results.pkl")
 
     def evaluate(self) -> Dict[str, float]:
-        # 将结果转换为DataFrame
+        # Convert results to DataFrame
         results_df = pd.DataFrame(self.results, columns=['similarity', 'ground_truth'])
         all_metrics = []
-        all_roc_data = []  # 存储所有折的ROC数据
+        all_roc_data = []  # Store ROC data for all folds
         
-        # 进行n-fold交叉验证
+        # Perform n-fold cross validation
         for fold in range(self.num_cross_validation):
-            # 划分训练集和测试集
+            # Split into training and test sets
             train_df, test_df = train_test_split(
                 results_df,
                 train_size=self.train_attack,
@@ -83,16 +83,16 @@ class GAPAttack(ICLAttackStrategy):
                 shuffle=True
             )
             
-            # 在训练集上找到最优阈值
+            # Find optimal threshold on training set
             best_threshold, best_accuracy = EvaluationMetrics.get_best_threshold(
                 train_df['ground_truth'], train_df['similarity']
             )
             
-            # 在测试集上评估
+            # Evaluate on test set
             test_predictions = test_df['similarity'] >= best_threshold
             test_accuracy = np.mean(test_predictions == test_df['ground_truth'])
             
-            # 计算ROC和AUC
+            # Calculate ROC and AUC
             fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(
                 test_df['ground_truth'], test_df['similarity']
             )
@@ -103,21 +103,21 @@ class GAPAttack(ICLAttackStrategy):
                 'threshold': best_threshold
             })
             
-            # 保存ROC数据
+            # Save ROC data
             all_roc_data.append({
                 'fold': fold,
-                'fpr': fpr.tolist(),  # 转换为list以便JSON序列化
+                'fpr': fpr.tolist(),  # Convert to list for JSON serialization
                 'tpr': tpr.tolist()
             })
         
-        # 计算accuracy的均值和方差
+        # Calculate mean and standard deviation of accuracy
         accuracies = [m['accuracy'] for m in all_metrics]
         best_thresholds = [m['threshold'] for m in all_metrics]
         final_metrics = {
             'avg_accuracy': np.mean(accuracies),
             'std_accuracy': np.std(accuracies),
             'best_thresholds': best_thresholds,
-            'roc_data': all_roc_data,  # 添加ROC数据到最终结果
+            'roc_data': all_roc_data,  # Add ROC data to final results
         }
         
         self.logger.save_json('metrics.json', final_metrics)

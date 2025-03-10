@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def cache_to_disk(func):
     @functools.wraps(func)
     def wrapper_cache(*args, **kwargs):
-        data_config = args[0]  # 假设第一个参数是 data_config
+        data_config = args[0]  # Assume the first parameter is data_config
         cache_enabled = getattr(data_config, 'cache_enabled', False)
         if not cache_enabled:
             return func(*args, **kwargs)
@@ -48,7 +48,7 @@ class DefaultProcessor:
     
     @cache_to_disk
     def process(self):
-        dataset = load_dataset(self.dataset_name, cache_dir=self.data_config.hf_cache_dir)  # 使用HuggingFace缓存目录
+        dataset = load_dataset(self.dataset_name, cache_dir=self.data_config.hf_cache_dir)  # Use HuggingFace cache directory
         dataset = dataset.map(self.apply_prompt)
         
         train_set = dataset["train"]
@@ -106,7 +106,7 @@ def preprocess(data_config):
     processor = processor_class(data_config)
     train_dataset, valid_dataset, test_dataset = processor.process()
     
-    # 应用数据集范围选择
+    # Apply dataset range selection
     if hasattr(data_config, 'train') and hasattr(data_config.train, 'end_index') and data_config.train.end_index > 0:
         train_dataset = train_dataset.select(range(data_config.train.start_index, data_config.train.end_index))
     if hasattr(data_config, 'eval') and hasattr(data_config.eval, 'end_index') and data_config.eval.end_index > 0:

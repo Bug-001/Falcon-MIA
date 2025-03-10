@@ -232,7 +232,7 @@ logger = get_logger("ICL Attack", "info")
 #         plt.tight_layout()
 #         self.logger.savefig('training_curves.png')
 #         plt.close()
-# # TODO: 仍未测试正确性
+# # TODO: Still need to test correctness
 
 def load_yaml_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, 'r') as file:

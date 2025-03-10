@@ -1,7 +1,7 @@
 id: "experiment_001"
 
 model:
-  type: "transformers"  # 可以是 "transformers" 或 "remote"
+  type: "transformers"  # Can be "transformers" or "remote"
   name: "meta-llama/Llama-2-7b-hf"
   trust_remote_code: false
   use_flash_attention: true
@@ -12,14 +12,14 @@ model:
     add_eos_token: false
     add_bos_token: false
     pad_token_id: null
-  hf_cache_dir: null  # 新增，用于存储从HuggingFace下载的模型缓存
+  hf_cache_dir: null  # Added for storing HuggingFace model cache
 
 data:
   dataset_name: "ag_news"
-  prompt_template: "default" # 可以使用"custom"和prompt_input在此方便地自定义prompt
+  prompt_template: "default" # Can use "custom" and prompt_input to easily customize prompt here
   dataset_config_name: null
-  hf_cache_dir: null  # 新增，用于存储从HuggingFace下载的数据集缓存
-  # preprocessed_cache_dir: "./input_cache"  # 新增，用于存储预处理后的数据缓存，TODO
+  hf_cache_dir: null  # Added for storing HuggingFace dataset cache
+  # preprocessed_cache_dir: "./input_cache"  # Added for storing preprocessed data cache, TODO
   packing: false
   block_size: 1024
   preprocessing_num_workers: 1

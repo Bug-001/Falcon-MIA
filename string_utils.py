@@ -113,20 +113,20 @@ class ObfuscationTechniques:
 
     def obfuscate(self, text: str, level: float) -> str:
         """
-        对文本进行混淆处理
+        Obfuscate text
         Args:
-            text: 输入文本
-            base_level: 基础混淆程度(0-1)
+            text: Input text
+            base_level: Base obfuscation level (0-1)
         Returns:
-            混淆后的文本
+            Obfuscated text
         """
         doc = g_nlp(text)
         words = [token.text for token in doc]
         
-        # 计算每个词的权重
+        # Calculate weight for each word
         word_weights = []
         if self._idf_dict is not None:
-            # 使用IDF权重
+            # Use IDF weights
             max_idf = max(self._idf_dict.values())
             for word in words:
                 if word.lower() in self._idf_dict:
@@ -135,14 +135,14 @@ class ObfuscationTechniques:
                     weight = 0.0
                 word_weights.append(weight)
         else:
-            # 使用简单的重要性判断
+            # Use simple importance judgment
             for i, token in enumerate(doc):
                 if token.ent_type_ or token.pos_ in self.important_pos:
                     word_weights.append(1.0)
                 else:
                     word_weights.append(0.5)
         
-        # 计算每个词的实际混淆程度
+        # Calculate actual obfuscation level for each word
         word_levels = [w * level for w in word_weights]
         
         if self.technique == 'character_swap':
@@ -160,10 +160,10 @@ class ObfuscationTechniques:
 
     def _character_swap(self, words: List[str], word_levels: List[float]) -> str:
         """
-        字符交换混淆
+        Character swap obfuscation
         Args:
-            words: 单词列表
-            word_levels: 每个单词对应的混淆程度(0-1)
+            words: List of words
+            word_levels: Obfuscation level for each word (0-1)
         """
         result = []
         for word, level in zip(words, word_levels):
@@ -172,7 +172,7 @@ class ObfuscationTechniques:
                 continue
             
             chars = list(word)
-            num_swaps = int(len(word) * level / 2)  # 每次交换会影响两个字符，所以除以2
+            num_swaps = int(len(word) * level / 2)  # Each swap affects two characters, so divide by 2
             for _ in range(num_swaps):
                 i, j = random.sample(range(len(word)), 2)
                 chars[i], chars[j] = chars[j], chars[i]
@@ -182,36 +182,36 @@ class ObfuscationTechniques:
 
     def _select_chars_for_substitution(self, words: List[str], word_levels: List[float], total_chars: int) -> List[Tuple[int, int]]:
         """
-        根据每个词的level选择要替换的字符位置
+        Select character positions to replace based on each word's level
         Args:
-            words: 单词列表
-            word_levels: 每个单词的混淆程度
-            total_chars: 需要替换的总字符数
+            words: List of words
+            word_levels: Obfuscation level for each word
+            total_chars: Total number of characters to replace
         Returns:
-            要替换的字符位置列表，每个元素为(词索引, 字符索引)
+            List of character positions to replace, each element is (word index, character index)
         """
-        # 计算每个词的字符数乘以level
+        # Calculate character count multiplied by level
         weighted_lengths = [len(word) * level for word, level in zip(words, word_levels)]
         total_weighted_length = sum(weighted_lengths)
         
         if total_weighted_length == 0:
             return []
         
-        # 归一化得到概率分布
+        # Normalize to get probability distribution
         word_probs = [w / total_weighted_length for w in weighted_lengths]
         
-        # 根据概率分布抽取词的索引
+        # Draw word indices based on probability distribution
         selected_word_indices = np.random.choice(
             len(words), 
             size=total_chars, 
             p=word_probs
         )
         
-        # 对每个被选中的词，随机选择一个字符位置
+        # For each selected word, randomly select a character position
         char_positions = []
         for word_idx in selected_word_indices:
             word = words[word_idx]
-            if len(word) > 0:  # 确保词非空
+            if len(word) > 0:  # Ensure word is not empty
                 char_idx = random.randrange(len(word))
                 char_positions.append((word_idx, char_idx))
         
@@ -219,21 +219,21 @@ class ObfuscationTechniques:
 
     def _apply_char_substitution(self, words: List[str], word_levels: List[float], char_map: Dict[str, List[str]]) -> str:
         """
-        通用的字符替换函数
+        Generic character substitution function
         Args:
-            words: 单词列表
-            word_levels: 每个单词的混淆程度
-            char_map: 字符映射字典
+            words: List of words
+            word_levels: Obfuscation level for each word
+            char_map: Character mapping dictionary
         Returns:
-            混淆后的文本
+            Obfuscated text
         """
-        # 计算需要替换的总字符数
+        # Calculate total number of characters to replace
         total_chars = sum(int(len(word) * level) for word, level in zip(words, word_levels))
         
-        # 选择要替换的字符位置
+        # Select character positions to replace
         char_positions = self._select_chars_for_substitution(words, word_levels, total_chars)
         
-        # 应用替换
+        # Apply substitution
         result = [list(word) for word in words]
         for word_idx, char_idx in char_positions:
             char = result[word_idx][char_idx].lower()
@@ -244,46 +244,46 @@ class ObfuscationTechniques:
 
     def _leet_speak(self, words: List[str], word_levels: List[float]) -> str:
         """
-        Leet编码混淆
+        Leet encoding obfuscation
         Args:
-            words: 单词列表
-            word_levels: 每个单词对应的混淆程度(0-1)
+            words: List of words
+            word_levels: Obfuscation level for each word (0-1)
         """
         return self._apply_char_substitution(words, word_levels, self.leet_dict)
 
     def _similar_char_substitution(self, words: List[str], word_levels: List[float]) -> str:
         """
-        相似字符替换
+        Similar character substitution
         Args:
-            words: 单词列表
-            word_levels: 每个单词对应的混淆程度(0-1)
+            words: List of words
+            word_levels: Obfuscation level for each word (0-1)
         """
         return self._apply_char_substitution(words, word_levels, self.similar_chars)
 
     def _synonym_substitution(self, words: List[str], word_levels: List[float]) -> str:
         """
-        同义词替换
+        Synonym substitution
         Args:
-            words: 单词列表
-            word_levels: 每个单词对应的混淆程度(0-1)
+            words: List of words
+            word_levels: Obfuscation level for each word (0-1)
         Returns:
-            混淆后的文本
+            Obfuscated text
         """
         result = list(words)
         
         for i, (word, level) in enumerate(zip(words, word_levels)):
-            # 按level概率决定是否替换该词
+            # Decide whether to replace the word based on level probability
             if random.random() >= level:
                 continue
             
             synonyms = []
-            # 获取同义词
+            # Get synonyms
             for syn in wordnet.synsets(word):
                 for lemma in syn.lemmas():
                     if lemma.name().lower() != word.lower():
                         synonyms.append(lemma.name())
             
-            # 如果找到同义词则随机选择一个替换
+            # If synonyms are found, randomly select one to replace
             if synonyms:
                 replacement = random.choice(synonyms).replace('_', ' ')
                 result[i] = replacement
@@ -320,28 +320,28 @@ class StringHelper:
         return self._max_idf
     
     def clean_text(self, text: str, min_word_length: int = 2, remove_stopwords: bool = True, lemmatize: bool = True) -> str:
-        # 转换为小写
+        # Convert to lowercase
         text = text.lower()
         
-        # 将标点符号替换为空格
+        # Replace punctuation with spaces
         text = text.translate(str.maketrans(string.punctuation, ' ' * len(string.punctuation)))
         
-        # # 移除数字
+        # # Remove numbers
         # text = re.sub(r'\d+', '', text)
         
-        # 将多个空格替换为单个空格
+        # Replace multiple spaces with a single space
         text = re.sub(r'\s+', ' ', text)
 
-        # 分词
+        # Tokenize
         words = word_tokenize(text)
         
-        # 过滤词
+        # Filter words
         stop_words = g_stop_words if remove_stopwords else set()
         words = [word for word in words 
                 if len(word) >= min_word_length 
                 and word not in stop_words]
         
-        # 词形还原
+        # Lemmatize
         if lemmatize:
             words = [g_lemmatizer.lemmatize(word) for word in words]
         
@@ -535,27 +535,27 @@ class StringHelper:
         return similarities
 
 if __name__ == "__main__":
-    # 测试文本
+    # Test text
     test_text = "The quick brown fox jumps over the lazy dog."
     print(f"Original text: {test_text}\n")
 
-    # 配置
+    # Configuration
     config = {
         'technique': 'character_swap',
         'nlp_dataset': 'en_core_web_md',
     }
 
-    # 创建ObfuscationTechniques实例
+    # Create ObfuscationTechniques instance
     obfuscator = ObfuscationTechniques(config)
 
-    # 测试character_swap
+    # Test character_swap
     print("Character Swap Obfuscation:")
     for level in np.linspace(0, 1, 5):
         obfuscated = obfuscator.obfuscate(test_text, level)
         print(f"Level {level}: {obfuscated}")
     print()
 
-    # 测试word_shuffle
+    # Test word_shuffle
     config['technique'] = 'word_shuffle'
     obfuscator = ObfuscationTechniques(config)
     print("Word Shuffle Obfuscation:")
@@ -564,7 +564,7 @@ if __name__ == "__main__":
         print(f"Level {level}: {obfuscated}")
     print()
 
-    # 测试synonym_replacement
+    # Test synonym_replacement
     config['technique'] = 'synonym_replacement'
     obfuscator = ObfuscationTechniques(config)
     print("Synonym Replacement Obfuscation:")
@@ -573,7 +573,7 @@ if __name__ == "__main__":
         print(f"Level {level}: {obfuscated}")
     print()
 
-    # 测试leet_speak
+    # Test leet_speak
     config['technique'] = 'leet_speak'
     obfuscator = ObfuscationTechniques(config)
     print("Leet Speak Obfuscation:")
@@ -582,7 +582,7 @@ if __name__ == "__main__":
         print(f"Level {level}: {obfuscated}")
     print()
 
-    # 测试evaluate_response
+    # Test evaluate_response
     original_label = "Animal"
     responses = [
         "This sentence is about an animal.",

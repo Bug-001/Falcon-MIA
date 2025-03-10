@@ -8,19 +8,19 @@ def load_config(config_file):
         return yaml.safe_load(f)
 
 def select_chat_template(model_name):
-    # 自动获取templates目录下的所有模板文件
+    # Automatically get all template files in the templates directory
     template_dir = os.path.join(os.path.dirname(__file__), 'templates')
     default_template = 'general.jinja'
     
-    # 遍历templates目录下的所有.jinja文件,寻找匹配项
+    # Iterate through all .jinja files in the templates directory, looking for matches
     for template_file in os.listdir(template_dir):
         if template_file.endswith('.jinja'):
-            # 从文件名中提取模型名称(去掉.jinja后缀)
+            # Extract model name from filename (remove .jinja suffix)
             template_model = template_file[:-6]
             if template_model in model_name.lower():
                 return os.path.join(os.path.dirname(__file__), 'templates', template_file)
     
-    # 如果没有找到匹配的模板，返回默认模板
+    # If no matching template is found, return the default template
     return os.path.join(os.path.dirname(__file__), 'templates', default_template)
 
 def main():
@@ -46,7 +46,7 @@ def main():
 
     vllm_command.extend(unknown)
 
-    # 选择合适的chat template
+    # Select appropriate chat template
     chat_template = select_chat_template(model_name)
     # if chat_template.endswith('mistral.jinja'):
     #     vllm_command.extend(["--tokenizer_mode", "mistral"])

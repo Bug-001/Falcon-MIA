@@ -29,7 +29,7 @@ class RepeatAttack(ICLAttackStrategy):
 
     @ICLAttackStrategy.cache_results
     def attack(self, model: 'ModelInterface'):
-        # 查找results.pkl是否已经存在
+        # Check if results.pkl already exists
         self.results = self.logger.load_data("results.pkl")
         if self.results is not None:
             self.logger.info("Loaded results from results.pkl")
@@ -59,7 +59,7 @@ class RepeatAttack(ICLAttackStrategy):
             
             self.results.append((similarity, is_member))
             
-            # 记录到表格中
+            # Record to table
             self.logger.new_row("repeat-attack_results")
             self.logger.add("Original", attack_sample["input"])
             self.logger.add("Expected", f"{latter} <or> {former} {latter if latter != '<empty>' else ''}")
@@ -73,31 +73,31 @@ class RepeatAttack(ICLAttackStrategy):
         self.logger.save_data(self.results, "results.pkl")
 
     def evaluate(self):
-        # 将结果转换为DataFrame
+        # Convert results to DataFrame
         results_df = pd.DataFrame(self.results, columns=['similarity', 'ground_truth'])
         all_metrics = []
-        all_roc_data = []  # 存储所有折的ROC数据
+        all_roc_data = []  # Store ROC data for all folds
         
-        # 进行n-fold交叉验证
+        # Perform n-fold cross validation
         for fold in range(self.num_cross_validation):
-            # 划分训练集和测试集
+            # Split into training and test sets
             train_df, test_df = train_test_split(
                 results_df,
-                train_size=self.train_attack,  # 使用和gap.py相同的训练集大小
+                train_size=self.train_attack,  # Use the same training set size as gap.py
                 random_state=fold,
                 shuffle=True
             )
             
-            # 在训练集上找到最优阈值
+            # Find best threshold on training set
             best_threshold, best_accuracy = EvaluationMetrics.get_best_threshold(
                 train_df['ground_truth'], train_df['similarity']
             )
             
-            # 在测试集上评估
+            # Evaluate on test set
             test_predictions = test_df['similarity'] >= best_threshold
             test_accuracy = np.mean(test_predictions == test_df['ground_truth'])
             
-            # 计算ROC和AUC
+            # Calculate ROC and AUC
             fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(
                 test_df['ground_truth'], test_df['similarity']
             )
@@ -108,14 +108,14 @@ class RepeatAttack(ICLAttackStrategy):
                 'threshold': best_threshold
             })
             
-            # 保存ROC数据
+            # Save ROC data
             all_roc_data.append({
                 'fold': fold,
                 'fpr': fpr.tolist(),
                 'tpr': tpr.tolist()
             })
         
-        # 计算accuracy的均值和方差
+        # Calculate mean and standard deviation of accuracy
         accuracies = [m['accuracy'] for m in all_metrics]
         best_thresholds = [m['threshold'] for m in all_metrics]
         final_metrics = {

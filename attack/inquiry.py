@@ -19,13 +19,13 @@ class InquiryAttack(ICLAttackStrategy):
         if len(words) == 0:
             return None
 
-        # 检查负面关键词
+        # Check negative keywords
         if any(word in self.negative_keywords for word in words):
             return False
         if "have not seen" in response.lower() or "haven't seen" in response.lower():
             return False
         
-        # 检查正面关键词
+        # Check positive keywords
         if any(word in self.positive_keywords for word in words):
             return True
         if "have seen" in response.lower() or "have encountered" in response.lower():
@@ -36,12 +36,12 @@ class InquiryAttack(ICLAttackStrategy):
         elif words[0].startswith("0"):
             return False
 
-        # 模型未给出有效信息
+        # Model did not provide valid information
         return None
 
     @ICLAttackStrategy.cache_results
     def attack(self, model):
-        # 查找results.pkl是否已经存在
+        # Check if results.pkl already exists
         self.results = self.logger.load_data("results.pkl")
         if self.results is not None:
             self.logger.info("Loaded results from results.pkl")
@@ -66,7 +66,7 @@ class InquiryAttack(ICLAttackStrategy):
             else:
                 self.results.append((random.random() < 0.5, is_member))
             
-            # 记录到表格中
+            # Record to table
             self.logger.new_row("inquiry-attack_results")
             self.logger.add("Input", attack_sample["input"])
             self.logger.add("Response", response)
@@ -76,29 +76,29 @@ class InquiryAttack(ICLAttackStrategy):
             self.logger.info("-" * 50)
         
         self.logger.save()
-        # 将results保存到文件
+        # Save results to file
         self.logger.save_data(self.results, "results.pkl")
 
     def evaluate(self) -> Dict[str, float]:
-        # 将结果转换为DataFrame
+        # Convert results to DataFrame
         results_df = pd.DataFrame(self.results, columns=['prediction', 'ground_truth'])
         all_metrics = []
-        all_roc_data = []  # 存储所有折的ROC数据
+        all_roc_data = []  # Store ROC data for all folds
         
-        # 计算每一折的大小
+        # Calculate size for each fold
         fold_size = len(results_df) // self.num_cross_validation
         
-        # 将数据分成n份
+        # Divide data into n parts
         for fold in range(self.num_cross_validation):
-            # 直接用切片取数据
+            # Use slicing to get data
             start_idx = fold * fold_size
             end_idx = (start_idx + fold_size) if fold < self.num_cross_validation - 1 else len(results_df)
             test_df = results_df.iloc[start_idx:end_idx]
             
-            # 直接计算准确率
+            # Calculate accuracy directly
             test_accuracy = np.mean(test_df['prediction'] == test_df['ground_truth'])
             
-            # 计算ROC和AUC
+            # Calculate ROC and AUC
             fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(
                 test_df['ground_truth'], test_df['prediction']
             )
@@ -108,14 +108,14 @@ class InquiryAttack(ICLAttackStrategy):
                 'auc': roc_auc
             })
             
-            # 保存ROC数据
+            # Save ROC data
             all_roc_data.append({
                 'fold': fold,
                 'fpr': fpr.tolist(),
                 'tpr': tpr.tolist()
             })
         
-        # 计算accuracy的均值和方差
+        # Calculate mean and standard deviation of accuracy
         accuracies = [m['accuracy'] for m in all_metrics]
         final_metrics = {
             'avg_accuracy': np.mean(accuracies),

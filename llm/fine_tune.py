@@ -32,7 +32,7 @@ def load_config(config_path):
         return data
     
     def dict_to_namespace(d):
-        """递归地将字典转换为 SimpleNamespace"""
+        """Recursively convert dictionary to SimpleNamespace"""
         if isinstance(d, dict):
             for key, value in d.items():
                 d[key] = dict_to_namespace(value)
@@ -46,9 +46,9 @@ def load_config(config_path):
         config_dict = yaml.safe_load(file)
     config_dict = convert_scientific_notation(config_dict)
     
-    # 确保 data 配置中包含 cache_enabled 选项
+    # Ensure data configuration includes cache_enabled option
     if 'data' in config_dict and 'cache_enabled' not in config_dict['data']:
-        config_dict['data']['cache_enabled'] = True  # 默认启用缓存
+        config_dict['data']['cache_enabled'] = True  # Enable cache by default
 
     return dict_to_namespace(config_dict)
 
@@ -65,7 +65,7 @@ def initialize_tokenizer(model_config, misc_config):
             model_config.name, 
             token=misc_config.token or os.getenv("HF_TOKEN", ""),
             trust_remote_code=model_config.trust_remote_code, 
-            cache_dir=model_config.hf_cache_dir,  # 使用HuggingFace缓存目录
+            cache_dir=model_config.hf_cache_dir,  # Use HuggingFace cache directory
             add_eos_token=model_config.tokenizer.add_eos_token, 
             add_bos_token=model_config.tokenizer.add_bos_token,
             use_fast=True
@@ -106,7 +106,7 @@ def initialize_model(model_config, peft_config, hardware_config, misc_config):
             token=misc_config.token or os.getenv("HF_TOKEN", ""),
             quantization_config=bnb_config,
             trust_remote_code=model_config.trust_remote_code, 
-            cache_dir=model_config.hf_cache_dir,  # 使用HuggingFace缓存目录
+            cache_dir=model_config.hf_cache_dir,  # Use HuggingFace cache directory
             torch_dtype=torch_dtype, 
             config=model_config_obj, 
             **kwargs
@@ -180,14 +180,14 @@ def get_training_arguments(training_config):
     )
 
 def save_model(model, tokenizer, output_dir):
-    # 如果是PEFT模型，先合并基础模型和PEFT权重
+    # If it's a PEFT model, first merge the base model and PEFT weights
     if hasattr(model, "merge_and_unload"):
         model = model.merge_and_unload()
     
-    # 保存模型
+    # Save model
     model.save_pretrained(output_dir)
     
-    # 保存tokenizer
+    # Save tokenizer
     tokenizer.save_pretrained(output_dir)
     
     logger.info(f"Model and tokenizer saved to {output_dir}")
@@ -201,11 +201,11 @@ def main(config_path):
 
     accelerator = Accelerator()
 
-    # 创建实验目录
+    # Create experiment directory
     experiment_dir = os.path.join(config.training.output_dir, config.id)
     os.makedirs(experiment_dir, exist_ok=True)
 
-    # 检查实验是否已完成
+    # Check if experiment has already been completed
     if os.path.exists(os.path.join(experiment_dir, "config.json")):
         if accelerator.is_main_process:
             logger.info(f"Experiment {config.id} has already been completed.")
@@ -217,10 +217,10 @@ def main(config_path):
     print_trainable_parameters(model)
 
     with accelerator.main_process_first():
-        # 直接调用 preprocess 函数，获取已经处理好的数据集
+        # Directly call preprocess function to get processed datasets
         train_dataset, valid_dataset, _ = preprocess(config.data)
 
-        # 对数据集进行 tokenize
+        # Tokenize datasets
         train_dataset = train_dataset.map(
             lambda examples: tokenize_function(examples, tokenizer, config.data.block_size),
             batched=True
@@ -244,11 +244,11 @@ def main(config_path):
         )
         trainer.train(resume_from_checkpoint=config.training.resume_from_checkpoint)
         
-        # 保存微调后的模型
+        # Save fine-tuned model
         save_model(model, tokenizer, os.path.join(config.training.output_dir))
     elif config.model.type == "remote":
         model.train(train_dataset, valid_dataset, training_args)
-        # 对于远程模型，可能需要特殊的保存方法
+        # For remote model, special saving method may be needed
         model.save(os.path.join(config.training.output_dir))
 
 if __name__ == "__main__":

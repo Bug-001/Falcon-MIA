@@ -35,13 +35,13 @@ def parse_folder_name(folder_name: str) -> Dict[str, Any]:
 def get_folder_name(info: Dict[str, str]) -> str:
     parts = []
     
-    # 优先添加task和dataset
+    # Prioritize adding task and dataset
     if 'task' in info:
         parts.append(f"task({info['task']})")
     if 'dataset' in info:
         parts.append(f"dataset({info['dataset']})")
         
-    # 添加其他键值对
+    # Add other key-value pairs
     other_parts = []
     for key, value in sorted(info.items()):
         if key not in ['task', 'dataset']:
@@ -81,7 +81,7 @@ def update_configs_from_key(key: str, data_config: dict, attack_config: dict, qu
 
 def find_source_folder(root_dir: Path, key: str, technique: str) -> Path:
     parts = key.split('--')
-    # 尝试在每个位置插入technique
+    # Try inserting technique at each position
     for i in range(len(parts) + 1):
         test_parts = parts[:i] + [f"technique({technique})"] + parts[i:]
         test_path = root_dir / '--'.join(test_parts)
@@ -93,7 +93,7 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
     root_dir = Path("cache/log")
     folders = get_folders(root_dir/model_name)
     
-    # 收集数据
+    # Collect data
     raw_data = []
     for folder in folders:
         info = parse_folder_name(folder.name)
@@ -107,7 +107,7 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
         key = remove_technique_from_folder_name(folder.name)
         technique = info['technique'][:3]
         
-        # 处理相似度名称
+        # Process similarity names
         processed_similarities = []
         for data, label in similarities:
             new_data = {}
@@ -124,12 +124,12 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
             'data': processed_similarities
         })
     
-    # 按key分组合并数据
+    # Group data by key
     grouped_data = defaultdict(list)
     for item in raw_data:
         grouped_data[item['key']].append(item['data'])
     
-    # 合并相同位置的数据
+    # Merge data at the same position
     final_results = {}
     for key, data_list in grouped_data.items():
         merged_data = []
@@ -151,9 +151,9 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
             
         final_results[key] = merged_data
     
-    # 借用ObfuscationAttack的方法进行分析
+    # Use ObfuscationAttack methods for analysis
     for key, similarities_data in final_results.items():
-        # 更新配置
+        # Update configuration
         data_config_copy = data_config.copy()
         attack_config_copy = attack_config.copy()
         query_config_copy = query_config.copy()
@@ -167,12 +167,12 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
         attack_config_copy['test_attack'] = 100
         attack_config_copy['attack_phase'] = 'train-test'
 
-        # 将similarities_data保存，从而攻击会跳过访问LLM的阶段
+        # Save similarities_data so the attack will skip accessing LLM
         os.makedirs(root_dir/attack_config_copy['name'], exist_ok=True)
         with open(root_dir/attack_config_copy['name']/"similarities_data", 'wb') as f:
             pickle.dump(similarities_data, f)
             
-        # 查找并复制dataset_overview.json
+        # Find and copy dataset_overview.json
         source_path = find_source_folder(root_dir/model_name, key, 'character_swap')
         dataset_overview_path = root_dir/attack_config_copy['name']/"dataset_overview.json"
         with open(source_path/"dataset_overview.json", 'r') as f:
@@ -180,7 +180,7 @@ def main(data_config, attack_config, query_config, model_name='Meta-Llama-3-8B-I
             with open(dataset_overview_path, 'w') as g:
                 json.dump(dataset_overview, g, indent=4)
 
-        # 创建一个假的level_info文件，这里就不再获取真的level_info了
+        # Create a fake level_info file, we won't get the real level_info here
         level_info_path = Path(root_dir/attack_config_copy['name']/"level_details.json")
         with open(level_info_path, 'w') as f:
             json.dump([{

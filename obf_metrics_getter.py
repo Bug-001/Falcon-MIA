@@ -17,7 +17,7 @@ def get_folders(root_dir: str) -> list:
     return [f for f in root.iterdir() if f.is_dir()]
 
 def get_base_name(folder_name: str) -> Tuple[str, int]:
-    """从文件夹名称中提取基础名称（不包含random_seed）和seed值"""
+    """Extract base name (without random_seed) and seed value from folder name"""
     if "random_seed" not in folder_name:
         return folder_name, None
     
@@ -34,12 +34,12 @@ def get_base_name(folder_name: str) -> Tuple[str, int]:
     return "--".join(base_parts), seed
 
 def get_accuracy_from_metrics(metric_data: Dict) -> Tuple[float, float]:
-    """从metrics数据中提取准确率和标准差"""
+    """Extract accuracy and standard deviation from metrics data"""
     if 'accuracy' in metric_data:
-        # 单次实验
+        # Single experiment
         return metric_data['accuracy'] * 100, 0.0
     elif 'avg_accuracy' in metric_data and 'std_accuracy' in metric_data:
-        # 多次实验
+        # Multiple experiments
         return metric_data['avg_accuracy'] * 100, metric_data['std_accuracy'] * 100
     else:
         raise KeyError("No accuracy information found in metrics")
@@ -48,11 +48,11 @@ def main(model_name: str):
     root_dir = Path("cache/log")
     folders = get_folders(root_dir/model_name)
 
-    # 使用嵌套的defaultdict来存储结果
+    # Use nested defaultdict to store results
     results = defaultdict(lambda: defaultdict(list))
     final_results = {}
 
-    # 收集数据
+    # Collect data
     for folder in folders:
         try:
             with open(folder/"metrics.json", 'r') as f:
@@ -63,7 +63,7 @@ def main(model_name: str):
         
         try:
             if isinstance(metric_data, list):
-                metric_data = metric_data[0]  # 如果是列表，取第一个元素
+                metric_data = metric_data[0]  # If it's a list, take the first element
             acc, std = get_accuracy_from_metrics(metric_data)
         except KeyError as e:
             print(f"Error processing {folder}: {e}")
@@ -72,21 +72,21 @@ def main(model_name: str):
         base_name, seed = get_base_name(folder.name)
         
         if seed is not None:
-            # 存储带有seed的结果
+            # Store results with seed
             results[base_name]['accuracies'].append(acc)
             results[base_name]['stds'].append(std)
         else:
-            # 存储单个结果
+            # Store single result
             final_results[folder.name] = (acc, std)
 
-    # 处理多seed实验结果
+    # Process multi-seed experiment results
     for base_name, data in results.items():
         accuracies = np.array(data['accuracies'])
         mean_acc = np.mean(accuracies)
         std_acc = np.std(accuracies)
         final_results[base_name] = (mean_acc, std_acc)
 
-    # 按准确率排序并打印所有结果
+    # Sort by accuracy and print all results
     for name, (acc, std) in sorted(final_results.items(), key=lambda x: x[1][0], reverse=True):
         print(f"{name}: {acc:.1f}±{std:.1f}")
 

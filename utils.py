@@ -42,17 +42,17 @@ class NumpyEncoder(json.JSONEncoder):
 
 class SLogger:
     def __init__(self, name):
-        self._tables: Dict[str, pd.DataFrame] = {}  # 存储所有表格
-        self._current_table: Optional[str] = None   # 当前选中的表格
-        self._current_row: Optional[int] = None     # 当前选中的行
-        self._row_counters: Dict[str, int] = {}    # 每个表格的行计数
+        self._tables: Dict[str, pd.DataFrame] = {}  # Store all tables
+        self._current_table: Optional[str] = None   # Currently selected table
+        self._current_row: Optional[int] = None     # Currently selected row
+        self._row_counters: Dict[str, int] = {}    # Row counter for each table
         self.root_dir = output_dir
         self.output_dir = os.path.join(output_dir, "log", name)
         os.makedirs(self.output_dir, exist_ok=True)
         init()
         
     def new_table(self, table_name: str) -> None:
-        """创建新表格并将其设为当前表格"""
+        """Create a new table and set it as the current table"""
         if table_name in self._tables:
             raise ValueError(f"Table {table_name} already exists")
         self._tables[table_name] = pd.DataFrame()
@@ -61,7 +61,7 @@ class SLogger:
         self._current_row = None
 
     def new_row(self, table_name: Optional[str] = None) -> int:
-        """在指定表格中创建新行，返回行号"""
+        """Create a new row in the specified table, return the row number"""
         table = table_name or self._current_table
         if table is None:
             raise ValueError("No table specified or selected")
@@ -75,7 +75,7 @@ class SLogger:
         return row_idx
 
     def select_table(self, table_name: str) -> None:
-        """选择当前表格"""
+        """Select the current table"""
         if table_name not in self._tables:
             raise ValueError(f"Table {table_name} does not exist")
         self._current_table = table_name
@@ -105,7 +105,7 @@ class SLogger:
 
     def get_value(self, key: str, table: Optional[str] = None, 
                  row: Optional[int] = None) -> Any:
-        """获取指定表格指定行的值"""
+        """Get the value from the specified table and row"""
         table_name = table or self._current_table
         if table_name is None:
             raise ValueError("No table specified or selected")
@@ -115,57 +115,57 @@ class SLogger:
         return self._tables[table_name][key]
 
     def get_table(self, table_name: Optional[str] = None) -> pd.DataFrame:
-        """获取指定表格"""
+        """Get the specified table"""
         table = table_name or self._current_table
         if table is None:
             raise ValueError("No table specified or selected")
         try:
-            # 如果表格不存在，试着用load打开
+            # If table doesn't exist, try to load it
             if table not in self._tables:
                 self.load(table)
         except FileNotFoundError:
-        # 表格不存在，创建空表
+            # Table doesn't exist, create an empty one
             self.new_table(table)
         return self._tables[table]
 
     def get_row(self, row: int, table: Optional[str] = None) -> pd.Series:
-        """获取指定表格的指定行"""
+        """Get the specified row from the specified table"""
         table_name = table or self._current_table
         if table_name is None:
             raise ValueError("No table specified or selected")
         return self._tables[table_name].iloc[row]
 
     def save(self) -> None:
-        """保存所有表格到文件"""
+        """Save all tables to file"""
         for table_name, df in self._tables.items():
             filename = os.path.join(self.output_dir, f"{table_name}.json")
             df.to_json(filename, orient='records', indent=4)
 
     def savefig(self, *args, **kwargs) -> None:
-        """保存图表到文件"""
+        """Save chart to file"""
         new_args = list(args)
         new_args[0] = os.path.join(self.output_dir, args[0])
         plt.savefig(*new_args, **kwargs)
 
     def save_data(self, data: Any, filename: str) -> None:
-        """保存数据到文件"""
+        """Save data to file"""
         filename = os.path.join(self.output_dir, filename)
         with open(filename, 'wb') as f:
             pickle.dump(data, f)
 
     def save_json(self, filename: str, data: Any) -> None:
-        """保存数据到JSON文件"""
+        """Save data to JSON file"""
         filename = os.path.join(self.output_dir, filename)
         with open(filename, 'w') as f:
             json.dump(data, f, indent=4, cls=NumpyEncoder)
 
     def save_model(self, model, filename: str) -> None:
-        """保存PyTorch模型到文件"""
+        """Save PyTorch model to file"""
         filename = os.path.join(self.output_dir, filename)
         torch.save(model.state_dict(), filename)
 
     def load_data(self, filename: str) -> Any:
-        """从文件加载数据"""
+        """Load data from file"""
         filename = os.path.join(self.output_dir, filename)
         try:
             with open(filename, 'rb') as f:
@@ -175,18 +175,18 @@ class SLogger:
             return None
         
     def load_model(self, model, filename: str) -> None:
-        """从文件加载PyTorch模型"""
+        """Load PyTorch model from file"""
         filename = os.path.join(self.output_dir, filename)
         model.load_state_dict(torch.load(filename))
 
     def load(self, filename: str) -> None:
-        """从文件加载表格"""
+        """Load table from file"""
         data_path = os.path.join(self.output_dir, f"{filename}.json")
         if not os.path.exists(data_path):
             raise FileNotFoundError(f"File {filename} not found")
             
         df = pd.read_json(data_path, orient='records')
-        table_name = filename  # 从文件名提取表名
+        table_name = filename  # Extract table name from file name
         self._tables[table_name] = df
         self._row_counters[table_name] = len(df)
         self._current_table = table_name
@@ -201,7 +201,7 @@ class SLogger:
         print(Fore.RED + "[ERROR]" + Style.RESET_ALL, *args, **kwargs)
 
     def __str__(self) -> str:
-        """返回所有表格的字符串表示"""
+        """Return string representation of all tables"""
         result = []
         for table_name, df in self._tables.items():
             result.append(f"Table: {table_name}")
@@ -234,7 +234,7 @@ class SDatasetManager:
         return loader.get_supported_tasks()
     
     def get_idf(self, columns=['input', 'output']) -> np.ndarray:
-        """计算IDF"""
+        """Calculate IDF"""
         if not hasattr(self, 'idf'):
             vectorizer = TfidfVectorizer(use_idf=True) # It will handle the preprocessing, so we don't need to do it
             dataset = concatenate_datasets([self._dataset[split] for split in self._dataset.keys()])
@@ -246,13 +246,13 @@ class SDatasetManager:
         return self.idf
 
     def _repeat_dataset_to_size(self, dataset, required_size):
-        """将数据集重复到略大于所需大小，然后截取"""
+        """Repeat dataset to slightly larger size, then crop"""
         current_size = len(dataset)
-        # 计算需要重复的次数，向上取整
+        # Calculate how many times to repeat, rounding up
         repeat_times = (required_size + current_size - 1) // current_size
-        # 重复数据集
+        # Repeat dataset
         repeated_data = concatenate_datasets([dataset] * repeat_times)
-        # 截取所需大小
+        # Crop to required size
         ret_data = repeated_data.select(range(required_size))
         assert len(ret_data) == required_size
         return ret_data
@@ -262,12 +262,12 @@ class SDatasetManager:
 
     def crop_dataset(self, num=-1, split=[0.8,0.1,0.1], seed=42, 
                     prioritized_splits=['train', 'validation', 'test'], strict=False):
-        # 1. 参数验证
+        # 1. Parameter validation
         valid_splits = {'train', 'validation', 'test'}
         if not all(split in valid_splits for split in prioritized_splits):
             raise ValueError("prioritized_splits can only contain 'train', 'validation', or 'test'")
         
-        # 2. 计算初始需求量
+        # 2. Calculate initial demand
         if isinstance(split[0], float):
             if sum(split) != 1:
                 raise ValueError("Split ratios must sum to 1")
@@ -285,12 +285,12 @@ class SDatasetManager:
             'test': test_num
         }
         
-        # 3. 准备数据源
+        # 3. Prepare data source
         if strict:
-            # strict模式：每个split只能从对应名称的数据集获取
+            # strict mode: each split can only get data from corresponding named dataset
             available_data = {k: v for k, v in self._dataset.items()}
         else:
-            # non-strict模式：合并所有数据
+            # non-strict mode: merge all data
             all_data = []
             for split_name in ['train', 'validation', 'test']:
                 if split_name in self._dataset:
@@ -298,9 +298,9 @@ class SDatasetManager:
             combined_data = concatenate_datasets(all_data).shuffle(seed=seed)
             available_data = {'combined': combined_data}
         
-        # 4. 计算最终分配量
+        # 4. Calculate final allocation
         if strict:
-            # strict模式：直接检查每个优先分割的数据是否足够
+            # strict mode: directly check each prioritized split data is enough
             for split_name in prioritized_splits:
                 if split_name not in available_data:
                     raise ValueError(f"Split '{split_name}' required but not found in dataset")
@@ -312,10 +312,10 @@ class SDatasetManager:
                     )
             final_sizes = initial_sizes
         else:
-            # non-strict模式：计算实际分配量
+            # non-strict mode: calculate actual allocation
             total_available = len(available_data['combined'])
             
-            # 首先分配优先splits
+            # First allocate prioritized splits
             final_sizes = {}
             remaining_data = total_available
             for split_name in prioritized_splits:
@@ -328,17 +328,17 @@ class SDatasetManager:
                 final_sizes[split_name] = required
                 remaining_data -= required
             
-            # 计算非优先splits的总需求量和比例
+            # Calculate non-priority splits total demand and ratio
             non_priority_splits = [s for s in valid_splits if s not in prioritized_splits]
             non_priority_total = sum(initial_sizes[s] for s in non_priority_splits)
             
-            # 按比例分配剩余数据给非优先splits
-            if non_priority_total > 0:  # 避免除以0
+            # Allocate remaining data proportionally to non-priority splits
+            if non_priority_total > 0:  # Avoid division by 0
                 if remaining_data < non_priority_total:
                     for split_name in non_priority_splits:
                         ratio = initial_sizes[split_name] / non_priority_total
                         final_sizes[split_name] = int(remaining_data * ratio)
-                        # 处理最后一个split的舍入误差
+                        # Handle rounding error for last split
                         if split_name == non_priority_splits[-1]:
                             final_sizes[split_name] = remaining_data - sum(
                                 final_sizes.get(s, 0) for s in non_priority_splits[:-1]
@@ -347,7 +347,7 @@ class SDatasetManager:
                     for split_name in non_priority_splits:
                         final_sizes[split_name] = initial_sizes[split_name]
         
-        # 5. 分配数据
+        # 5. Allocate data
         result_splits = {}
         if not strict:
             current_idx = 0
@@ -359,17 +359,17 @@ class SDatasetManager:
             if split_name in prioritized_splits:
                 assert required_size == supplied_size
                 if strict:
-                    # strict模式：从对应split中获取数据
+                    # strict mode: get data from corresponding split
                     data = available_data[split_name].shuffle(seed=seed)
                     result_splits[split_name] = data.select(range(required_size))
                 else:
-                    # non-strict模式：从combined数据中顺序获取
+                    # non-strict mode: get data sequentially from combined data
                     result_splits[split_name] = available_data['combined'].select(
                         range(current_idx, current_idx + required_size)
                     )
                     current_idx += required_size
             else:
-                # 非优先分割：使用数据重复策略
+                # Non-priority split: use data repetition strategy
                 if strict and split_name in available_data:
                     source_data = available_data[split_name].shuffle(seed=seed)
                 else:
@@ -387,7 +387,7 @@ class SDatasetManager:
         return DatasetDict(result_splits)
     
     def save_dataset(self, path: str, dataset: DatasetDict = None) -> None:
-        """保存数据集到文件"""
+        """Save dataset to file"""
         if dataset == None:
             dataset = self._dataset
         dataset_path = os.path.join(self.dir, path)
@@ -432,10 +432,10 @@ class EvaluationMetrics:
     
     @staticmethod
     def get_best_threshold(ground_truth, scores):
-        # 计算ROC
+        # Calculate ROC
         fpr, tpr, thresholds = roc_curve(ground_truth, scores)
 
-        # 找到最佳accuracy对应的阈值
+        # Find best accuracy corresponding threshold
         accuracies = []
         for threshold in thresholds:
             predictions = scores >= threshold
@@ -477,21 +477,17 @@ class EvaluationMetrics:
         plt.savefig(filename)
         plt.close()
 
-# def save_json(filename: str, data: Any):
-#     with open(filename, 'w') as f:
-#         json.dump(data, f, indent=2, cls=NumpyEncoder)
-
-# 使用示例
+# Usage example
 # if __name__ == "__main__":
 #     sdm = SDatasetManager()
-#     # 测试多任务数据集
+#     # Test multi-task dataset
 #     print("SQuAD supported tasks:", sdm.get_available_tasks("squad"))
 #     for task in sdm.get_available_tasks("squad"):
 #         dataset, config = sdm.load_dataset_and_config("squad", task)
 #         print(f"\nSQuAD {task} task config:", config)
 #         print(f"SQuAD {task} example:", dataset['train'][0])
     
-#     # 测试单任务数据集
+#     # Test single-task dataset
 #     single_task_datasets = ["gpqa", "trec", "agnews"]
 #     for dataset_name in single_task_datasets:
 #         print(f"\n{dataset_name} supported tasks:", sdm.get_available_tasks(dataset_name))

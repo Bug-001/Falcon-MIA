@@ -19,7 +19,7 @@ import icl
 # This script will use generated LLM response to conduct some tiny experiments.
 
 def parse_folder_name(folder_name: str) -> Dict[str, str]:
-    """解析task(xx)--dataset(xx)--num_demonstrations(xx)--technique(xx)格式的路径"""
+    """Parse path in format task(xx)--dataset(xx)--num_demonstrations(xx)--technique(xx)"""
     pattern = r"task\((\w+)\)--dataset\((\w+)\)--num_demonstrations\((\d+)\)--technique\((\w+)\)"
     match = re.match(pattern, folder_name)
     if not match:
@@ -71,7 +71,7 @@ def renew_similarity(folder_path: Path, info: Dict):
 
     new_level_details = level_details.copy()
     
-    # 遍历dataframe的数据，先对sample_id进行group
+    # Iterate through dataframe data, first group by sample_id
     for sample_id, group in tqdm(level_details.groupby('sample_id'), desc=folder_path.name):
         all_level_similarities = dict()
         orig_data = dataset_overview.iloc[sample_id]
@@ -99,7 +99,7 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
     
     l = {}
 
-    # 收集数据
+    # Collect data
     for folder in folders:
         info = parse_folder_name(folder.name)
         if not info:
@@ -115,7 +115,7 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
 
         continue
         
-        # 调用icl的函数开始模型训练
+        # Call icl function to start model training
         data_config = {
             "dataset": info['dataset'],
             "task": info['task'],

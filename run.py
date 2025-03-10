@@ -28,27 +28,27 @@ class GracefulKiller:
 
 @dataclass
 class ExperimentTask:
-    """实验任务类"""
+    """Experiment task class"""
     exp_name: str
     params: List[Dict]
-    group_key: Tuple  # 用于标识实验所属组
-    dependencies: Set[Tuple]  # 依赖的组
+    group_key: Tuple  # Used to identify the group to which the experiment belongs
+    dependencies: Set[Tuple]  # Dependent groups
 
 class ExperimentRunner:
     def __init__(self, params_config: Dict[str, Any]):
-        """初始化实验运行器"""
+        """Initialize experiment runner"""
         self.config = params_config
         
-        # 加载主函数
+        # Load main function
         self.main_func = self._load_main_function()
         
-        # 加载yaml模板
+        # Load yaml templates
         self.templates = self._load_templates()
 
-        # 获取程序文件的最后修改时间
+        # Get the last modified time of the program file
         self.last_modified_time = self._get_program_last_modified_time()
         
-        # 并行配置
+        # Parallel configuration
         parallel_config = self.config.get('parallel', {})
         self.parallel_enabled = parallel_config.get('enable', False)
         self.max_workers = parallel_config.get('max_workers', 1) if self.parallel_enabled else 1
@@ -56,7 +56,7 @@ class ExperimentRunner:
         self.killer = GracefulKiller()
 
     def _load_main_function(self):
-        """获取程序主函数句柄"""
+        """Get main function handle"""
         module_name = self.config['program']['module']
         function_name = self.config['program']['function']
         
@@ -67,7 +67,7 @@ class ExperimentRunner:
             raise ImportError(f"Failed to load main function: {str(e)}")
             
     def _load_templates(self) -> Dict[str, Dict]:
-        """加载所有yaml模板"""
+        """Load all yaml templates"""
         templates = []
         for param_config in self.config['params']:
             template_path = param_config['param']
@@ -77,9 +77,9 @@ class ExperimentRunner:
         return templates
         
     def _generate_experiment_name(self, param_values: Dict[str, Dict[str, Any]]) -> str:
-        """生成实验名称"""
+        """Generate experiment name"""
         name_parts = []
-        # 添加参数值
+        # Add parameter values
         for params in param_values:
             for param_name, value in params.items():
                 # Sanitize the value to avoid special characters
@@ -92,11 +92,11 @@ class ExperimentRunner:
         return self.config['name_prefix'] + "/" + "--".join(name_parts)
         
     def _is_valid_combination(self, params: Dict[str, Dict[str, Any]]) -> bool:
-        """检查参数组合是否满足约束条件"""
+        """Check if parameter combination meets constraints"""
         if 'constraints' not in self.config:
             return True
             
-        # 创建本地变量以便eval执行约束条件
+        # Create local variables for eval to execute constraints
         locals_dict = {'params': params}
         
         for constraint in self.config['constraints']:
@@ -110,10 +110,10 @@ class ExperimentRunner:
         return True
         
     def _generate_param_combinations(self):
-        """生成所有有效的参数组合"""
+        """Generate all valid parameter combinations"""
         all_param_combinations = []
         
-        # 为每个参数配置生成组合
+        # Generate combinations for each parameter configuration
         for param_config in self.config['params']:
             param_specs = param_config.get('config', {})
             if not param_specs:
@@ -123,13 +123,13 @@ class ExperimentRunner:
             combinations = self._process_param_dict(param_specs)
             all_param_combinations.append(combinations)
         
-        # 将不同文件的参数直接组合起来
+        # Combine parameters directly from different files
         for param_combo in itertools.product(*all_param_combinations):
             if self._is_valid_combination(list(param_combo)):
                 yield list(param_combo)
     
     def _process_param_dict(self, param_dict):
-        """递归处理参数字典，生成所有可能的组合"""
+        """Recursively process parameter dictionary, generating all possible combinations"""
         all_choices = []
         
         for param_name, param_values in param_dict.items():
@@ -137,16 +137,16 @@ class ExperimentRunner:
 
             # param_values is a list, in which every elem can be the value, or a value with dependent param dict
             for value_spec in param_values:
-                # 如果是普通元素
+                # If it's a normal element
                 if not isinstance(value_spec, dict):
-                    # 尝试使用eval解析参数值
+                    # Try using eval to parse parameter value
                     parsed_value = self._try_eval_value(value_spec)
                     cur_choices.append({param_name: parsed_value})
 
-                # 如果是带依赖的配置列表
+                # If it's a configuration list with dependencies
                 else:
                     value = value_spec['value']
-                    # 对value也尝试eval解析
+                    # Also try using eval to parse value
                     parsed_value = self._try_eval_value(value)
                     dep = value_spec['dependency']
                     dep_combinations = self._process_param_dict(dep)
@@ -165,21 +165,21 @@ class ExperimentRunner:
         return ret
     
     def _try_eval_value(self, value):
-        """尝试对值进行eval处理，失败则返回原始值"""
-        # 只对字符串类型进行eval尝试
+        """Try to evaluate value, return original value if failed"""
+        # Only try eval on string type
         if not isinstance(value, str):
             return value
         
         try:
-            # 尝试eval解析字符串
+            # Try eval to parse string
             parsed_value = eval(value)
             return parsed_value
         except Exception:
-            # 如果解析失败，返回原始字符串
+            # If parsing fails, return original string
             return value
     
     def _get_program_last_modified_time(self) -> float:
-        """获取程序文件的最后修改时间"""
+        """Get the last modified time of the program file"""
         module_name = self.config['program']['module']
         try:
             module = importlib.import_module(module_name)
@@ -190,34 +190,34 @@ class ExperimentRunner:
             return 0
             
     def _get_timestamp_from_name(self, exp_name: str) -> datetime:
-        """从实验名称中提取时间信息"""
+        """Extract time information from experiment name"""
         try:
-            # 假设时间戳格式为YYYYMMDDHHmm
+            # Assume timestamp format is YYYYMMDDHHmm
             timestamp_str = ""
             for part in exp_name.split("-"):
-                if len(part) == 12 and part.isdigit():  # 找到符合格式的时间戳部分
+                if len(part) == 12 and part.isdigit():  # Find timestamp part that matches format
                     timestamp_str = part
                     break
             
             if timestamp_str:
                 return datetime.strptime(timestamp_str, "%Y%m%d%H%M")
             else:
-                # 如果没找到时间戳，返回一个很早的时间以确保重新运行
+                # If no timestamp found, return a very early time to ensure rerun
                 return datetime.min
         except Exception as e:
             print(f"Warning: Failed to parse timestamp from {exp_name}: {str(e)}")
             return datetime.min
 
     def _need_rerun(self, exp_name: str) -> bool:
-        """判断实验是否需要重新运行"""
+        """Determine if experiment needs to be rerun"""
         exp_dir = Path(os.path.join("cache/log", exp_name))
 
-        # 检查metrics.json是否为空或损坏
+        # Check if metrics.json is empty or corrupted
         metric_file = os.path.join(exp_dir, "metrics.json")
         try:
             with open(metric_file, 'r') as f:
                 metrics_data = json.load(f)
-            if not metrics_data:  # 如果文件为空字典
+            if not metrics_data:  # If file is empty dictionary
                 print(f"Running experiment {exp_name} (metrics file is empty)")
                 return True
         except (json.JSONDecodeError, IOError):
@@ -228,40 +228,40 @@ class ExperimentRunner:
         return False
         
     def _update_experiment_name(self, old_name: str) -> str:
-        """更新实验名称中的时间戳"""
+        """Update timestamp in experiment name"""
         parts = old_name.split("-")
         new_timestamp = datetime.now().strftime("%Y%m%d%H%M")
         
-        # 更新或插入时间戳
+        # Update or insert timestamp
         timestamp_updated = False
         for i, part in enumerate(parts):
-            if len(part) == 12 and part.isdigit():  # 找到原时间戳
+            if len(part) == 12 and part.isdigit():  # Find original timestamp
                 parts[i] = new_timestamp
                 timestamp_updated = True
                 break
                 
-        if not timestamp_updated:  # 如果没找到原时间戳，在prefix后添加
+        if not timestamp_updated:  # If original timestamp not found, add to prefix
             prefix_index = parts.index(self.config['name_prefix']) if self.config['name_prefix'] in parts else 0
             parts.insert(prefix_index + 1, new_timestamp)
             
         return "-".join(parts)
 
     def _prepare_experiment_batch(self) -> List[Tuple[List[Dict], str]]:
-        """准备实验批次"""
+        """Prepare experiment batch"""
         experiment_batch = []
         for param_combo in self._generate_param_combinations():
             experiment_batch.append(param_combo)
         return experiment_batch
 
     def _run_single_experiment(self, param_combo: List[Dict]):
-        """运行单个实验的完整流程"""
+        """Run complete process for single experiment"""
         exp_name = self._generate_experiment_name(param_combo)
 
-        # 检查是否需要重新运行
+        # Check if needs to be rerun
         if not self._need_rerun(exp_name):
             return
 
-        # 如果需要重新运行，且目录已存在，更新实验名称
+        # If needs to be rerun and directory exists, update experiment name
         if Path(exp_name).exists():
             new_exp_name = self._update_experiment_name(exp_name)
             print(f"[Process {current_process().name}] Updating experiment name from {exp_name} to {new_exp_name}")
@@ -269,14 +269,14 @@ class ExperimentRunner:
             
         print(f"\n[Process {current_process().name}] Running experiment: {exp_name}")
         
-        # 准备参数
+        # Prepare parameters
         current_params = []
         for template, params in zip(self.templates, param_combo):
             template_copy = copy.deepcopy(template)
             template_copy.update(params)
             current_params.append(template_copy)
 
-        # 运行实验
+        # Run experiment
         try:
             self.main_func(*current_params, exp_name)
             print(f"[Process {current_process().name}] Experiment {exp_name} completed successfully")
@@ -286,7 +286,7 @@ class ExperimentRunner:
             raise
 
     def run(self):
-        """运行所有实验（支持并行）"""
+        """Run all experiments (supports parallel)"""
         try:
             with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = []
@@ -300,17 +300,17 @@ class ExperimentRunner:
                 for future in concurrent.futures.as_completed(futures):
                     if self.killer.kill_now:
                         print("\nShutting down gracefully...")
-                        # 取消所有未完成的任务
+                        # Cancel all unfinished tasks
                         for f in futures:
                             f.cancel()
                         break
                     try:
-                        future.result(timeout=60)  # 添加超时限制
+                        future.result(timeout=60)  # Add timeout limit
                     except concurrent.futures.TimeoutError:
                         print("A task timed out")
                     except Exception as e:
                         print(f"Task failed with: {e}")
-                        # 将错误信息写入error.txt
+                        # Write error info to error.txt
                         with open("error.txt", "a") as f:
                             f.write(f"Task failed with: {traceback.format_exc()}\n")
 
@@ -318,7 +318,7 @@ class ExperimentRunner:
             print("\nCaught KeyboardInterrupt, shutting down...")
             return
         finally:
-            # 确保清理所有资源
+            # Ensure clean up all resources
             print("Cleaning up resources...")
 
 def main(params):    

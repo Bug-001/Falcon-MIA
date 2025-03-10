@@ -25,7 +25,7 @@ import icl
 # This script will use generated LLM response to conduct some tiny experiments.
 
 def parse_folder_name(folder_name: str) -> Dict[str, str]:
-    """解析task(xx)--dataset(xx)--num_demonstrations(xx)--technique(xx)格式的路径"""
+    """Parse path in format task(xx)--dataset(xx)--num_demonstrations(xx)--technique(xx)"""
     pattern = r"task\((\w+)\)--dataset\((\w+)\)--num_demonstrations\((\d+)\)--technique\((\w+)\)"
     match = re.match(pattern, folder_name)
     if not match:
@@ -52,11 +52,11 @@ class ObfuscationDetectorCollator:
     def __call__(self, features: List[Tuple[Dict[float, str], bool]]) -> Dict[str, torch.Tensor]:
         batch_size = len(features)
 
-        # 就先不引入level了吧……直接几个句子一排
+        # Let's not introduce levels yet... just put sentences in a row
         labels = []
 
         all_responses = []
-        # tokenize数据，将所有的responses都放在一起
+        # Tokenize data, put all responses together
         for responses_dict, label in features:
             labels.append(label)
             # Original text is at level 0
@@ -99,17 +99,17 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
     tokenizer = LongformerTokenizer.from_pretrained(detector_name, do_lower_case=True)
     collator = ObfuscationDetectorCollator(tokenizer)
 
-    # 收集数据
+    # Collect data
     for folder in folders:
         info = parse_folder_name(folder.name)
         if not info:
             continue
 
-        # 检查是否已经训练过
+        # Check if already trained
         if Path(f"cache/model/detector/{model_name}/{folder.name}/model.safetensors").exists():
             continue
 
-        # 确保level_details.json存在
+        # Ensure level_details.json exists
         level_details_path = folder/"level_details.json"
         if not level_details_path.exists():
             continue
@@ -124,7 +124,7 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
         dataset_overview.set_index('sample_id', inplace=True)
         level_details = pd.read_json(folder/"level_details.json")
         responses = []
-        # 遍历dataframe的数据，先对sample_id进行group
+        # Iterate through dataframe data, first group by sample_id
         for sample_id, group in tqdm(level_details.groupby('sample_id'), desc=folder.name):
             all_level_responses = dict()
             orig_data = dataset_overview.iloc[sample_id]
@@ -135,7 +135,7 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
                 all_level_responses[0] = original
             responses.append((all_level_responses, orig_data['Membership']))
 
-        # 设置训练参数
+        # Set training parameters
         training_args = TrainingArguments(
             output_dir=f"cache/model/detector/{model_name}/{folder.name}",
             eval_strategy="steps",
@@ -151,12 +151,12 @@ def main(data_config, attack_config, query_config, name='unnamed_experiment'):
             load_best_model_at_end=True,
             metric_for_best_model="eval_loss",
             # remove_unused_columns=False,
-            report_to="wandb",          # 启用wandb记录
+            report_to="wandb",          # Enable wandb logging
             logging_dir="cache/model/detector/log",
             logging_steps=5,
         )
         
-        # 初始化Trainer
+        # Initialize Trainer
         trainer = Trainer(
             model=model,
             args=training_args,

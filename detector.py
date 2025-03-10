@@ -20,7 +20,7 @@ class MembershipDataCollator:
     def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
         batch_size = len(features)
         
-        # 编码原始文本
+        # Encode original text
         orig_texts = [f['original_text'] for f in features]
         orig_encodings = self.tokenizer(
             orig_texts,
@@ -31,7 +31,7 @@ class MembershipDataCollator:
         )
 
         if isinstance(features[0]['responses'], str):
-            # 批量处理response
+            # Batch process responses
             responses = [f['responses'] for f in features]
             resp_encodings = self.tokenizer(
                 responses,
@@ -41,21 +41,21 @@ class MembershipDataCollator:
                 return_tensors='pt'
             )
             
-            # 准备标签和level
+            # Prepare labels and levels
             labels = torch.tensor([f['membership'] for f in features], dtype=torch.float32)
             levels = torch.tensor([f['levels'] for f in features], dtype=torch.float32)
 
         else:
-            # 获取当前批次中最大的level数量
+            # Get the maximum number of levels in the current batch
             max_levels = max(len(f['responses']) for f in features)
             
-            # 为每个level创建编码
+            # Create encodings for each level
             resp_encodings = {
                 'input_ids': [],
                 'attention_mask': [],
             }
 
-            # 将response进行编码
+            # Encode the responses
             resp_list = []
             for feature in features:
                 resp = feature['responses'] + [''] * (max_levels - len(feature['responses']))
@@ -70,7 +70,7 @@ class MembershipDataCollator:
             resp_encodings['input_ids'] = encodings['input_ids'].reshape(batch_size, max_levels, -1).flatten(1, 2)
             resp_encodings['attention_mask'] = encodings['attention_mask'].reshape(batch_size, max_levels, -1).flatten(1, 2)
             
-            # 准备level值和标签
+            # Prepare level values and labels
             levels = torch.zeros(batch_size, max_levels, dtype=torch.float32)
             for i, feature in enumerate(features):
                 levels[i, :len(feature['levels'])] = torch.tensor(feature['levels'])
@@ -88,26 +88,26 @@ class MembershipDataCollator:
 
 class MembershipDataset():
     def __init__(self, data):
-        # 按sample_id对数据进行分组
+        # Group data by sample_id
         grouped_data = defaultdict(list)
         for item in data:
-            key = (item['sample_id'], item['original_text'])  # 使用sample_id和original_text作为key
+            key = (item['sample_id'], item['original_text'])  # Use sample_id and original_text as key
             grouped_data[key].append(item)
         
-        # 重新组织数据
+        # Reorganize data
         self.data = []
         for (sample_id, original_text), group in grouped_data.items():
-            # 按level排序
+            # Sort by level
             group.sort(key=lambda x: x['level'])
             
-            # 现在让不同level成为不同训练例子
+            # Now make different levels become different training examples
             for item in group:
                 self.data.append({
                     'sample_id': sample_id,
                     'original_text': original_text,
                     'responses': item['response'],
                     'levels': item['level'],
-                    'membership': group[0]['membership']  # membership应该对同一个sample_id是一致的
+                    'membership': group[0]['membership']  # membership should be consistent for the same sample_id
                 })
 
             # self.data.append({
@@ -115,7 +115,7 @@ class MembershipDataset():
             #     'original_text': original_text,
             #     'responses': [item['response'] for item in group],
             #     'levels': [item['level'] for item in group],
-            #     'membership': group[0]['membership']  # membership应该对同一个sample_id是一致的
+            #     'membership': group[0]['membership']  # membership should be consistent for the same sample_id
             # })
     
     def __len__(self):
@@ -159,21 +159,21 @@ class MembershipDetectionModel(nn.Module):
         levels=None,
         labels=None,
     ):
-        # 编码original_text
+        # Encode original_text
         orig_outputs = self.encoder(
             input_ids=orig_input_ids,
             attention_mask=orig_attention_mask
         )
         orig_hidden = orig_outputs.last_hidden_state
         
-        # 编码拼接后的responses
+        # Encode concatenated responses
         resp_outputs = self.encoder(
             input_ids=resp_input_ids,
             attention_mask=resp_attention_mask
         )
         resp_hidden = resp_outputs.last_hidden_state
         
-        # 交叉注意力
+        # Cross attention
         attended_orig = self.cross_attention(
             orig_hidden,
             resp_hidden,
@@ -188,11 +188,11 @@ class MembershipDetectionModel(nn.Module):
             key_padding_mask=~orig_attention_mask.bool()
         )
         
-        # 池化
+        # Pooling
         orig_pooled = attended_orig.mean(dim=1)
         resp_pooled = attended_resp.mean(dim=1)
         
-        # 拼接并分类
+        # Concatenate and classify
         concat = torch.cat([orig_pooled, resp_pooled], dim=-1)
         logits = self.classifier(concat).squeeze(-1)
         
@@ -271,24 +271,24 @@ def compute_metrics(eval_pred):
 def main():
     encoder_name = 'microsoft/deberta-v3-large'
 
-    # 初始化tokenizer
+    # Initialize tokenizer
     tokenizer = AutoTokenizer.from_pretrained(encoder_name)
     
-    # 准备数据集
+    # Load data
     data_path = "cache/data/"
     with open(os.path.join(data_path, 'Meta-Llama-3-8B-Instruct--output.json'), 'r') as f:
         data = json.load(f)
     data_len = len(data)
-    train_dataset = MembershipDataset(data[:int(data_len*0.8)])  # train_data需要自行加载
-    eval_dataset = MembershipDataset(data[int(data_len*0.8):])    # eval_data需要自行加载
+    train_dataset = MembershipDataset(data[:int(data_len*0.8)])
+    eval_dataset = MembershipDataset(data[int(data_len*0.8):])
     
-    # 创建数据整理器
+    # Create data collator
     data_collator = MembershipDataCollator(tokenizer=tokenizer)
     
-    # 创建模型
+    # Create model
     model = MembershipDetectionModel(encoder_name)
     
-    # 设置训练参数
+    # Set training parameters
     training_args = TrainingArguments(
         output_dir="cache/model/detector/llama3-test",
         eval_strategy="steps",
@@ -304,12 +304,12 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="f1",
         remove_unused_columns=False,
-        report_to="wandb",          # 启用wandb记录
+        report_to="wandb",          # Enable wandb logging
         logging_dir="cache/model/detector/log",
         logging_steps=10,
     )
     
-    # 初始化Trainer
+    # Initialize Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -319,10 +319,10 @@ def main():
         compute_metrics=compute_metrics,
     )
     
-    # 开始训练
+    # Start training
     trainer.train()
     
-    # 保存最终模型
+    # Save final model
     trainer.save_model("cache/model/detector/llama3-test")
 
 if __name__ == "__main__":

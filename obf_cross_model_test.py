@@ -9,8 +9,8 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# 定义全局基础路径
-BASE_PATH = Path("cache/log")  # 这里需要根据实际情况修改
+# Define global base path
+BASE_PATH = Path("cache/log")  # Modify this according to actual situation
 TASK = Path("obf_technique_test/('judgment', 'lexglue', 3)")
 SIMDATA = Path("similarities_data")
 DETECTOR = Path("obf-mlp-0/model.safetensors")
@@ -29,23 +29,23 @@ target_models = [
 
 def load_data_and_model(model_name: str):
     """
-    加载特定模型的数据和训练好的判别器
+    Load data and trained detector for a specific model
     """
-    # 假设数据和模型都在BASE_PATH/model_name下
+    # Assume data and model are under BASE_PATH/model_name
     task_path = BASE_PATH / model_name / TASK
     
-    # 加载数据
+    # Load data
     with open(task_path / SIMDATA, "rb") as f:
         data = pickle.load(f)
     
-    # 使用ObfuscationDataCollator处理数据
+    # Process data using ObfuscationDataCollator
     collator = ObfuscationDataCollator()
     processed_data = collator(data)
     
-    # 计算输入特征维度
+    # Calculate input feature dimension
     input_size = processed_data['features'].shape[1]
     
-    # 初始化模型
+    # Initialize model
     model = ObfuscationModel(input_size=input_size)
     model.load_state_dict(load_file(task_path / DETECTOR))
     model.to("cuda")
@@ -55,55 +55,55 @@ def load_data_and_model(model_name: str):
 
 def plot_accuracy_heatmap(results, save_path="accuracy_heatmap.png"):
     """
-    将交叉测试结果绘制成热力图
+    Plot cross-test results as a heatmap
     
     Args:
-        results: Dict[Tuple[str, str], Dict] - 交叉测试的结果
-        save_path: str - 保存图片的路径
+        results: Dict[Tuple[str, str], Dict] - Cross-test results
+        save_path: str - Path to save the image
     """
-    # 创建准确率矩阵
+    # Create accuracy matrix
     accuracy_matrix = np.zeros((len(target_models), len(target_models)))
     
-    # 填充准确率矩阵
+    # Fill accuracy matrix
     for i, model_A in enumerate(target_models):
         for j, model_B in enumerate(target_models):
             if (model_A, model_B) in results:
                 accuracy_matrix[i, j] = results[(model_A, model_B)]['accuracy']
     
-    # 创建图形
+    # Create figure
     plt.figure(figsize=(10, 8))
     
-    # 绘制热力图
+    # Draw heatmap
     sns.heatmap(
         accuracy_matrix,
         xticklabels=target_models,
         yticklabels=target_models,
-        annot=True,  # 显示数值
-        fmt='.3f',   # 数值格式
-        cmap='YlOrRd',  # 色彩映射
-        vmin=0.5,    # 最小值
-        vmax=1.0,    # 最大值
-        cbar_kws={'label': 'Accuracy'}  # 颜色条标签
+        annot=True,  # Show values
+        fmt='.3f',   # Value format
+        cmap='YlOrRd',  # Color map
+        vmin=0.5,    # Minimum value
+        vmax=1.0,    # Maximum value
+        cbar_kws={'label': 'Accuracy'}  # Color bar label
     )
     
-    # 设置标签
+    # Set labels
     plt.xlabel('Attack LLM')
     plt.ylabel('Target LLM')
     plt.title('Cross-Model Membership Inference Accuracy')
     
-    # 调整布局
+    # Adjust layout
     plt.tight_layout()
     
-    # 保存图片
+    # Save image
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
 
 def cross_model_test():
-    # 存储所有模型的数据和判别器
+    # Store all model data and detectors
     data_dict = {}
     model_dict = {}
     
-    # 加载所有数据和模型
+    # Load all data and models
     print("Loading data and models...")
     for model_name in target_models:
         try:
@@ -114,26 +114,26 @@ def cross_model_test():
             print(f"Error loading {model_name}: {e}")
             continue
     
-    # 交叉测试
+    # Cross testing
     print("Starting cross-model testing...")
     results = {}
     
-    # 遍历所有可能的模型对
+    # Iterate through all possible model pairs
     for model_A, model_B in tqdm(list(product(target_models, target_models))):
         if model_A not in data_dict or model_B not in model_dict:
             continue
         
-        # 获取模型A的数据
+        # Get model A's data
         data = data_dict[model_A]
-        # 获取模型B的判别器
+        # Get model B's detector
         classifier = model_dict[model_B]
         
-        # 进行预测
+        # Make predictions
         with torch.no_grad():
             predictions = classifier(data['features'].to('cuda'))['logits']
             predictions = predictions.cpu().squeeze()
         
-        # 计算准确率
+        # Calculate accuracy
         labels = data['labels']
         correct = ((predictions > 0.5).float() == labels).float().mean().item()
         
@@ -143,14 +143,14 @@ def cross_model_test():
             # 'labels': labels.numpy()
         }
     
-    # 绘制热力图
+    # Draw heatmap
     plot_accuracy_heatmap(results)
     
     return results
 
 if __name__ == "__main__":
     results = cross_model_test()
-    # 格式化打印结果
+    # Format and print results
     models = sorted(list(set([m for pair in results.keys() for m in pair])))
     print("\nAccuracy Matrix:")
     print("Data\\Model", end="\t")

@@ -23,20 +23,20 @@ from itertools import product
 @dataclass
 class ObfuscationDataCollator:
     def __call__(self, features: List[Tuple[Dict, bool]]) -> Dict[str, torch.Tensor]:
-        # 分离特征和标签
+        # Separate features and labels
         features_list = []
         labels = []
         for data_point, label in features:
-            # 获取所有unique的similarity类型
+            # Get all unique similarity types
             similarity_types = sorted(list(set(
                 sim_type for level_data in data_point.values() 
                 for sim_type in level_data.keys()
             )))
             
-            # 构建特征向量
+            # Build feature vector
             feature_vector = []
             for level, sim_dict in sorted(data_point.items()):
-                feature_vector.append(level)  # 添加level值
+                feature_vector.append(level)  # Add level value
                 feature_vector.extend(sim_dict.get(sim_type, 0.0) for sim_type in similarity_types)
             
             features_list.append(feature_vector)
@@ -112,7 +112,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         
         self.num_cross_validation = attack_config.get('cross_validation', 1)
 
-        # 将单个classifier改为classifiers列表
+        # Change single classifier to a list of classifiers
         self.classifiers = []
         for _ in range(self.num_cross_validation):
             classifier = ObfuscationModel(
@@ -143,12 +143,12 @@ class ObfuscationAttack(ICLAttackStrategy):
             report_to='none', # XXX: Disable wandb temporarily
         )
 
-        # 添加数据存储列表
+        # Add data storage lists
         self.train_data_list = [None] * self.num_cross_validation
         self.test_data_list = [None] * self.num_cross_validation
 
     def _attack(self, model, query_hooks=None):
-        # 创建主表格和详细记录表格
+        # Create main table and detailed record table
         results_table = "dataset_overview"
         details_table = "level_details"
 
@@ -160,14 +160,14 @@ class ObfuscationAttack(ICLAttackStrategy):
         train_length = self.train_attack
         data_loader = self.data_loader.train() + self.data_loader.test()
         for i, (icl_samples, attack_sample, is_member) in enumerate(tqdm(data_loader)):
-            # 为主表格创建新行
+            # Create new row for main table
             main_row = self.logger.new_row(results_table)
 
-            # 根据索引判断是否是训练数据
+            # Determine if it's training data based on index
             is_train = i < train_length
             icl_prompt = self.generate_icl_prompt(icl_samples, is_train=is_train)
             
-            # 选择待混淆文本
+            # Select text to obfuscate
             input_text = attack_sample["input"].split()
             output_text = attack_sample["output"].split()
             if self.attack_config.get('selected_obf_text', 'all') == 'input':
@@ -180,14 +180,14 @@ class ObfuscationAttack(ICLAttackStrategy):
                 original_text = input_text + output_text
             original_text = " ".join(original_text)
             
-            # 记录并打印基本信息
+            # Record and print basic information
             self.logger.add("sample_id", main_row)
             self.logger.add("type", "train" if i < train_length else "test")
             self.logger.add("Original", original_text)
             self.logger.add("Membership", is_member)
             
             all_level_similarities = dict()
-            # 处理每个混淆级别
+            # Process each obfuscation level
             for level in np.linspace(0.6, self.max_obfuscation_level, self.num_obfuscation_levels):
                 level_row = self.logger.new_row(details_table)
                 
@@ -206,10 +206,10 @@ class ObfuscationAttack(ICLAttackStrategy):
                 response = query_return[0]
                 similarities_first_line = self.shelper.calculate_overall_similarity_dict(original_text, response.split('\n')[0])
                 similarities_all_lines = self.shelper.calculate_overall_similarity_dict(original_text, response)
-                # 各指标取最大者
+                # Take maximum of each metric
                 similarities = {k: max(v, similarities_first_line[k]) for k, v in similarities_all_lines.items()}
                 
-                # 记录level的详细信息
+                # Record detailed level information
                 self.logger.add("sample_id", main_row)
                 self.logger.add("level", level)
                 self.logger.add("obfuscated_text", obfuscated_text)
@@ -223,17 +223,17 @@ class ObfuscationAttack(ICLAttackStrategy):
         return similarities_data
 
     def train_once(self, x: int):
-        # 设置保存路径
+        # Set save path
         model_dir = Path(f"obf-mlp-{x}")
         Path(self.detector_dir/model_dir).mkdir(parents=True, exist_ok=True)
         classfier_path = model_dir/"model.safetensors"
         
-        # 数据文件路径
+        # Data file path
         train_data_path = model_dir/"train_data.pkl"
         test_data_path = model_dir/"test_data.pkl"
         
         if not os.path.exists(self.detector_dir/classfier_path):
-            # 使用train_test_split划分数据
+            # Split data using train_test_split
             train_data, test_data = train_test_split(
                 self.similarities_data,
                 train_size=self.train_attack,
@@ -241,20 +241,20 @@ class ObfuscationAttack(ICLAttackStrategy):
                 shuffle=True
             )
             
-            # 保存训练集和测试集
+            # Save training and test sets
             self.logger.save_data(train_data, train_data_path)
             self.logger.save_data(test_data, test_data_path)
             
-            # 保存到实例变量
+            # Save to instance variables
             self.train_data_list[x] = train_data
             self.test_data_list[x] = test_data
             
-            # 更新training_args的输出路径
+            # Update training_args output path
             self.training_args.output_dir = self.detector_dir/model_dir
             self.training_args.logging_dir = self.detector_dir/model_dir/"logs"
 
             trainer = Trainer(
-                model=self.classifiers[x],  # 使用对应的classifier
+                model=self.classifiers[x],  # Use corresponding classifier
                 args=self.training_args,
                 data_collator=ObfuscationDataCollator(),
                 train_dataset=train_data,
@@ -281,23 +281,23 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.classifiers[x].eval()
         test_data = self.test_data_list[x]
         
-        # 将test_data经过collator处理
+        # Process test_data through collator
         test_features = ObfuscationDataCollator()(test_data)
         
         predictions_values = []
-        # 记录每个样本的预测结果
+        # Record prediction results for each sample
         for i, (feature_vector, is_member) in enumerate(zip(test_features['features'], test_features['labels'])):
             with torch.no_grad():
                 pred = self.classifiers[x](feature_vector.to('cuda').unsqueeze(0))['logits'][0].to('cpu').item()
             predictions_values.append(pred)
             
-            # 获取原始文本和响应
+            # Get original text and response
             original_text = test_data[i][0]
             all_level_similarities = test_data[i][0]
             responses = [f"Level {level}: {sims}" for level, sims in all_level_similarities.items()]
             is_member = bool(is_member)
             
-            # 记录预测结果，添加model_id参数
+            # Record prediction results, add model_id parameter
             self.__add_evaluation_record_to_table(
                 "predictions", 
                 i,
@@ -306,10 +306,10 @@ class ObfuscationAttack(ICLAttackStrategy):
                 is_member, 
                 all_level_similarities, 
                 pred,
-                x  # 传入model_id
+                x  # Pass model_id
             )
             
-            # 如果预测错误，记录到mispredict表格
+            # If prediction is wrong, record to mispredict table
             if (pred > 0.5) != is_member:
                 self.__add_evaluation_record_to_table(
                     "mispredicted_results", 
@@ -319,16 +319,16 @@ class ObfuscationAttack(ICLAttackStrategy):
                     is_member, 
                     all_level_similarities, 
                     pred,
-                    x  # 传入model_id
+                    x  # Pass model_id
                 )
 
-        # 计算指标
+        # Calculate metrics
         predictions = list(map(lambda x: x > 0.5, predictions_values))
         ground_truth = test_features['labels'].tolist()
         
         metrics = EvaluationMetrics.calculate_advantage(predictions, ground_truth)
         
-        # 计算ROC曲线和AUC
+        # Calculate ROC curve and AUC
         fpr, tpr, roc_auc = EvaluationMetrics.calculate_roc_auc(ground_truth, predictions_values)
         metrics['auc'] = roc_auc
         
@@ -342,18 +342,18 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.logger.new_table(predictions_table)
         self.logger.new_table(metrics_table)
 
-        # 收集所有运行的指标
+        # Collect metrics from all runs
         all_metrics = []
         num_runs = self.attack_config.get('cross_validation', 1)
         for i in range(num_runs):
             metrics = self.test_once(i)
             all_metrics.append(metrics)
             
-            # 将每次运行的指标添加到表格中
+            # Add metrics from each run to the table
             for key, value in metrics.items():
                 self.logger.add(f"run_{i}_{key}", value, metrics_table)
 
-        # 计算平均值和标准差
+        # Calculate mean and standard deviation
         avg_metrics = {}
         std_metrics = {}
         for key in all_metrics[0].keys():
@@ -361,20 +361,20 @@ class ObfuscationAttack(ICLAttackStrategy):
             avg_metrics[key] = np.mean(values)
             std_metrics[key] = np.std(values)
             
-            # 添加到表格中
+            # Add to table
             self.logger.add(f"avg_{key}", avg_metrics[key], metrics_table)
             self.logger.add(f"std_{key}", std_metrics[key], metrics_table)
 
-        # 使用特征技术，分析混淆级别和相似度带来的影响
+        # Use feature techniques to analyze the impact of obfuscation level and similarity
         # XXX: Very confusing code...
         self.analyze_feature_importance(
-            HFModelWrapper(self.classifiers[0]), # 只分析第一个
+            HFModelWrapper(self.classifiers[0]), # Only analyze the first one
             ObfuscationDataCollator()(self.similarities_data)['features'].to('cuda'),
             list(self.similarities_data[0][0].keys()),
             ['level'] + sorted(list(self.similarities_data[0][0].values())[0].keys()),
         )
 
-        # 保存结果
+        # Save results
         self.logger.save()
         return avg_metrics
 
@@ -407,7 +407,7 @@ class ObfuscationAttack(ICLAttackStrategy):
         if self.attack_config.get('attack_phase', 'all') == 'request':
             raise KeyboardInterrupt
 
-        # 训练模型
+        # Train models
         for i in range(self.num_cross_validation):
             self.train_once(i)
 
@@ -422,46 +422,46 @@ class ObfuscationAttack(ICLAttackStrategy):
         self.logger.add("model_id", model_id, table, show=False)
 
     def analyze_feature_importance(self, model, input_features, levels, similarity_types):
-        # 确保模型处于评估模式
+        # Ensure model is in evaluation mode
         model.eval()
         
-        # 1. Integrated Gradients分析
+        # 1. Integrated Gradients analysis
         ig = IntegratedGradients(model)
-        ig_attr = ig.attribute(input_features, target=0)  # target=0 因为是1维输出
+        ig_attr = ig.attribute(input_features, target=0)  # target=0 because output is 1-dimensional
         
-        # 2. DeepLift分析
+        # 2. DeepLift analysis
         dl = DeepLift(model)
         dl_attr = dl.attribute(input_features, target=0)
         
-        # 3. Feature Ablation分析
+        # 3. Feature Ablation analysis
         ablator = FeatureAblation(model)
         abl_attr = ablator.attribute(input_features, target=0)
         
-        # 计算每个特征的重要性分数（取绝对值的平均）
+        # Calculate importance score for each feature (mean of absolute values)
         importance_scores = {
             'integrated_gradients': torch.abs(ig_attr).mean(dim=0),
             'deeplift': torch.abs(dl_attr).mean(dim=0),
             'ablation': torch.abs(abl_attr).mean(dim=0)
         }
 
-        # 创建图形
+        # Create figure
         plt.figure(figsize=(20, 5))
         
-        # XXX: 这里暂时截取掉level的第一列
+        # XXX: Temporarily truncate the first column of level
         similarity_types = similarity_types[1:]
 
-        # 为每种方法创建一个子图
+        # Create a subplot for each method
         for idx, (method_name, scores) in enumerate(importance_scores.items(), 1):
-            # 创建热力图数据矩阵
+            # Create heatmap data matrix
             heatmap_data = np.zeros((len(levels), len(similarity_types)))
             
-            # 填充数据
+            # Fill data
             for feature_idx, (level, sim) in enumerate(product(levels, similarity_types)):
                 i = levels.index(level)
                 j = similarity_types.index(sim)
                 heatmap_data[i, j] = scores[feature_idx].item()
 
-            # 创建子图
+            # Create subplot
             plt.subplot(1, 3, idx)
             sns.heatmap(
                 heatmap_data,
