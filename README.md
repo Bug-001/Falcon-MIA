@@ -219,96 +219,7 @@ python obf_metrics_getter.py --dir "Meta-Llama-3-8B-Instruct/obf_technique_test"
 
 The results can then be visualized using standard data analysis tools like Matplotlib.
 
-## Reproducing Paper Experiments
-
-We designed a experiment framework to facilitate the research. Following are the steps to reproduce the paper experiments, while you can learn how to use this framework to design your own experiments.
-
-(Under construction below)
-
-### Main Results (Table 2)
-
-To reproduce the main results comparing FALCON with baseline methods across different models and datasets:
-
-```bash
-# Run FALCON with Obfuscation attack
-python run.py --config params-1.yaml
-
-# Run baseline methods (GAP, Inquiry, Repeat, Brainwash, Hybrid)
-python run.py --config params-2.yaml
-```
-
-### Influence of Demonstrations (Figure 4)
-
-To evaluate how the number of demonstrations affects attack performance:
-
-```bash
-# Vary the number of demonstrations from 1 to 10
-python run.py --config new-params-1.yaml
-```
-
-### Influence of Model Size (Figure 5)
-
-To analyze the correlation between model scale and attack efficacy:
-
-```bash
-# Test across different model sizes (0.5B to 72B)
-python run.py --config new-params-2.yaml
-```
-
-### Ablation Studies (Table 3 & 4)
-
-To understand the contribution of different obfuscation techniques:
-
-```bash
-# Ablation study on obfuscation techniques
-python obf-ablation.py --config new-params-3.yaml
-
-# Ablation study on IDF-weighted similarity measures
-python obf-ablation.py --config new-params-4.yaml
-```
-
-### Cross-Model Testing (Figure 6)
-
-To evaluate the transferability of the attack across different models:
-
-```bash
-python obf_cross_model_test.py --config params-mitigation-llama3.yaml
-```
-
-### Mitigation Strategies (Table 5)
-
-To evaluate potential defense mechanisms:
-
-```bash
-python run.py --config params-mitigation-qwen.yaml
-python run.py --config params-mitigation-llama3.yaml
-```
-
-## Result Analysis
-
-After running experiments, you can analyze the results using the provided scripts:
-
-```bash
-# Collect and analyze metrics
-python obf_metrics_getter.py --results_dir results/
-
-# Comprehensive result analysis
-python obf-result-analysis.py --results_dir results/
-```
-
-### Understanding Results
-
-The analysis scripts generate several metrics to evaluate attack performance:
-
-1. **Attack Success Rate (ASR)**: The percentage of successful membership inferences
-2. **True Positive Rate (TPR)**: The rate of correctly identified member samples
-3. **True Negative Rate (TNR)**: The rate of correctly identified non-member samples
-4. **AUC Score**: Area Under the ROC Curve, measuring overall attack performance
-5. **F1 Score**: Harmonic mean of precision and recall
-
-Results are saved in the `results/` directory with detailed logs and visualizations.
-
-### Customizing Experiments
+## Customizing Experiments
 
 To design your own experiments:
 
@@ -325,47 +236,7 @@ To design your own experiments:
    - Extend the data loader in `data.py`
    - Implement preprocessing for your dataset
 
-## Frequently Asked Questions
-
-### How do I use my own dataset?
-
-To use a custom dataset, you need to:
-1. Add your dataset loader to `data.py`
-2. Create a data configuration file that specifies your dataset
-3. Run experiments with your data configuration
-
-### How do I debug failed attacks?
-
-If your attacks are not performing as expected:
-1. Check the logs in the `results/` directory
-2. Increase verbosity in the configuration files
-3. Analyze the model responses to understand where the attack is failing
-
-### Can I use this framework with my own models?
-
-Yes, you can use this framework with any model that:
-1. Has an API compatible with the framework
-2. Can be hosted locally and accessed through the local model interface
-3. Supports the query format used by the framework
-
-## Framework Structure
-
-- `attack/`: Contains implementations of different attack strategies
-  - `__init__.py`: Base attack strategy class and factory method
-  - `obfuscation.py`: FALCON's obfuscation attack implementation
-  - `gap.py`, `inquiry.py`, `repeat.py`, `brainwash.py`, `hybrid.py`: Baseline methods
-  - `mitigation.py`: Defense mechanisms
-- `string_utils.py`: Text obfuscation techniques
-- `data.py`: Dataset loading and processing
-- `utils.py`: Utility functions
-- `detector.py`: Neural membership detector implementation
-- `configs/`: Contains default configuration files
-  - `data.yaml`: Default dataset configuration
-  - `query.yaml`: Default model query configuration
-  - `attack_chat.yaml`: Default attack configuration
-  - `.env.example`: Template for environment variables
-
-## Citation
+<!-- ## Citation
 
 If you use this code in your research, please cite our paper:
 
@@ -376,7 +247,7 @@ If you use this code in your research, please cite our paper:
   journal={IEEE Transactions on Information Forensics and Security},
   year={2024}
 }
-```
+``` -->
 
 ## License
 
