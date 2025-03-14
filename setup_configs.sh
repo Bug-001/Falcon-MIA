@@ -18,7 +18,7 @@ echo "Copying basic configuration files..."
 cp configs/data.yaml .
 cp configs/query.yaml .
 cp configs/attack_chat.yaml .
-
+cp configs/server.yaml .
 # # Copy experiment configuration files if they exist
 # if [ -f configs/params.yaml ]; then
 #   echo "Copying experiment configuration files..."

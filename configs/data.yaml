@@ -1,5 +1,9 @@
 # gpqa.yaml
 
+# Dataset and task names are defined in data.py
+# You can customize your own dataset and task in data.py
 dataset: "gpqa"
 task: "default"
+
+# Number of demonstrations to use
 num_demonstrations: 3

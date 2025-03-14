@@ -4,7 +4,7 @@
 # model: gpt-3.5-turbo
 
 model_type: local
-model: server3.yaml
+model: server.yaml
 
 # model_type: infinigence
 # model: qwen2.5-72b-instruct

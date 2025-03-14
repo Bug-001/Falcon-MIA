@@ -2,9 +2,22 @@
 
 This repository contains the implementation of FALCON (Flexible Attack on Language Context via Obfuscation), a novel membership inference attack framework for in-context learning systems. FALCON reformulates membership inference as a text de-obfuscation task, inspired by cognitive psychology principles.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation](#installation)
+- [Basic Usage](#basic-usage)
+  - [Data Configuration](#data-configuration)
+  - [Query Configuration](#query-configuration)
+  - [Attack Configuration](#attack-configuration)
+- [Batch Experiment Framework](#batch-experiment-framework)
+- [Result Post-processing Scripts](#result-post-processing-scripts)
+- [Reproduce Main Experimental Results](#reproduce-main-experimental-results)
+- [Community Contributions](#community-contributions)
+
 ## Overview
 
-FALCON is the first task-agnostic membership inference attack framework for in-context learning systems. It leverages a previously unexplored signal: language models exhibit stronger de-obfuscation capabilities for text sequences they have previously encountered in their context window.
+FALCON is a universal and task-agnostic membership inference attack framework. It leverages a previously unexplored signal: language models exhibit stronger de-obfuscation capabilities for text sequences they have previously encountered in their context window.
 
 The framework consists of three main components:
 1. **Text Obfuscation**: Multiple techniques to transform original text
@@ -12,13 +25,6 @@ The framework consists of three main components:
 3. **Neural Membership Detector**: A classifier that synthesizes various similarity signals
 
 ## Installation
-
-### Requirements
-
-- Python 3.8+
-- CUDA-compatible GPU (recommended)
-
-### Setup
 
 1. Clone the repository:
 ```bash
@@ -196,45 +202,56 @@ This script:
 
 The output format is `experiment_name: accuracy±std_deviation`, making it easy to identify the best-performing configurations.
 
-## Example Workflow
+## Reproduce Main Experimental Results
 
-A typical post-processing workflow might look like:
+To reproduce some of our main experimental results (e.g. FALCON on Meta-Llama-3-8B-Instruct for all datasets and tasks), follow these steps:
 
-1. Prepare the basic configuration files, i.e. `data.yaml`, `attack_chat.yaml`, `query.yaml` and `server.yaml` if you want to use local model.
+1. After setting up the experiment environment, if you use model API services (we implemented OpenAI, Anthropic, ML/AI and Infinigence), you need to modify the `query.yaml` file to specify the model API options like `model_type`, `model`, `base_url`, etc., and set up the API keys in the `.env` file. By adding a new model client in the `query.py` file, you can easily register other API services as well.
 
-2. Run multiple experiments with different configurations:
+On the other hand, if you want to run the LLM on a local (basically, network connected) server, please modify the `server.yaml` file to specify the vLLM server options that suit your machine. Then start the vLLM server on your machine:
 ```bash
-python run.py --config params.yaml
+python llm/server.py -c server.yaml
 ```
 
-3. Combine results from different obfuscation techniques:
+2. Run the complete set of experiments on a specific model using our provided configuration:
+```bash
+python run.py --config configs/main-result-params.yaml
+```
+This configuration file is designed to run a comprehensive set of experiments with various attack techniques on a single model.
+
+3. After the experiments complete, combine results from different obfuscation techniques:
 ```bash
 python obf_multi_techniques.py --dir "Meta-Llama-3-8B-Instruct"
 ```
 
-4. Collect and analyze metrics across all experiments:
+4. Finally, collect and analyze metrics across all experiments:
 ```bash
 python obf_metrics_getter.py --dir "Meta-Llama-3-8B-Instruct/obf_technique_test"
 ```
+This script will automatically handle multiple seeds and give the average and standard deviation of the results.
 
-The results can then be visualized using standard data analysis tools like Matplotlib.
+These steps will reproduce our key findings for a specific model. To compare across multiple models and baselines, you can modify the model configuration in `main-result-params.yaml` or create additional configuration files.
 
-## Customizing Experiments
+## Community Contributions
 
-To design your own experiments:
+FALCON is designed as a highly extensible framework for membership inference attack research on LLMs. We welcome and encourage community contributions to enhance its capabilities and address limitations from but not limited to:
 
-1. **Create custom configuration files**:
-   - Modify existing YAML files in the `configs/` directory
-   - Create new configuration files for specific experiment settings
+- **Pull Requests**: Feel free to submit pull requests for new features, improvements, or bug fixes. Some areas that could benefit from contributions include:
+  - New obfuscation techniques
+  - Additional membership detection methods
+  - Support for more LLM APIs
+  - Performance optimizations
+  - Extended dataset support
 
-2. **Implement custom attack strategies**:
-   - Extend the base attack class in `attack/__init__.py`
-   - Implement your attack logic in a new file in the `attack/` directory
-   - Register your attack in the attack factory method
+- **Issues**: If you encounter any problems or have suggestions, please open an issue on our GitHub repository. When reporting issues, please include:
+  - A clear description of the problem
+  - Steps to reproduce the issue
+  - Expected vs. actual behavior
+  - Your environment details (OS, Python version, etc.)
 
-3. **Add custom datasets**:
-   - Extend the data loader in `data.py`
-   - Implement preprocessing for your dataset
+- **Discussions**: For general questions or to discuss potential improvements, use the Discussions tab on GitHub.
+
+As a universal framework for MIA research on LLMs, FALCON's continued development relies on community support and feedback. We appreciate all contributions that help make this tool more robust and comprehensive.
 
 <!-- ## Citation
 
@@ -248,7 +265,3 @@ If you use this code in your research, please cite our paper:
   year={2024}
 }
 ``` -->
-
-## License
-
-[MIT License](LICENSE)

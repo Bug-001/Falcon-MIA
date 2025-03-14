@@ -1,0 +1,27 @@
+# server.yaml
+# Use this yaml file at two places:
+# 1. When starting the vLLM server, use the command "python llm/server.py -c server.yaml"
+# 2. Then specify this model server in the query.yaml file, e.g., "model: server.yaml"
+
+# All the following options are consistent with the vLLM OpenAI API server
+# See available options at https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
+
+# model-tag: "mistralai/Mistral-7B-Instruct-v0.2"
+model-tag: "meta-llama/Meta-Llama-3-8B-Instruct"
+# model-tag: "meta-llama/Llama-2-7b-chat-hf"
+
+# model-tag: "Qwen/Qwen2.5-0.5B-Instruct"
+# model-tag: "Qwen/Qwen2.5-1.5B-Instruct"
+# model-tag: "Qwen/Qwen2.5-3B-Instruct"
+# model-tag: "Qwen/Qwen2.5-7B-Instruct"
+# model-tag: "Qwen/Qwen2.5-14B-Instruct"
+# model-tag: "Qwen/Qwen2.5-32B-Instruct"
+host: "127.0.0.1"
+port: 8001
+trust-remote-code: false
+dtype: "auto"
+gpu-memory-utilization: 0.90
+tensor-parallel-size: 1
+max-num-seqs: 256
+# max-model-len: 14240
+quantization: null

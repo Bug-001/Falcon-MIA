@@ -1,0 +1,55 @@
+# main-result-params.yaml
+
+# Experiment name prefix. The result of every experiment will be saved in the folder "cache/log/{name_prefix}"
+name_prefix: "Meta-Llama-3-8B-Instruct"
+
+# Program/module to run
+program:
+  module: "icl"  # Your program module
+  function: "main"        # Main function name
+
+# Parallel strategy configuration
+parallel:
+  enable: true           # Whether to enable parallel execution
+  max_workers: 8         # Maximum number of parallel processes
+
+# Parameter configuration
+# The `params` section will be used to override the default parameters in YAML files specified in every `param` keys.
+# For example, the following configuration will:
+# 1. Use five datasets and specify different tasks for **each** dataset, as specified by the `dependency` field.
+# 2. Use four obfuscation techniques.
+# 3. Use three seeds.
+# 4. And finally, generate the parameters combinations and run all these experiments in parallel with 8 processes.
+params:
+  - param: "data.yaml"
+    config:
+      dataset:
+        - value: trec
+          dependency:
+            task: [default]
+        - value: gpqa
+          dependency:
+            task: [default]
+        - value: lexglue
+          dependency:
+            task: [generation, judgment]
+        - value: pubmedqa
+          dependency:
+            task: [qa, classification, summarization]
+        - value: cce
+          dependency:
+            task: [classification, platform_detection]
+  
+  - param: "attack_chat.yaml"
+    config:
+      technique: ["character_swap", "synonym_replacement", "leet_speak", "similar_char_substitution"]
+      # selected_attack_sample: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      random_seed: [124, 125, 126]
+  
+  - param: "query.yaml"
+    config:
+      model: ["server.yaml"]
+
+# Parameter constraint conditions
+constraints:
+  - "True"  # TODO: Still under development
